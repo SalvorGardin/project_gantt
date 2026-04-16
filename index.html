@@ -1,295 +1,473 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="light">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gantt Roadmap | Дорожная карта проекта</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/dhtmlx-gantt@8.0.6/codebase/dhtmlxgantt.css">
-  <style>
-    :root { --gantt-height: calc(100vh - 60px); }
-    body { margin: 0; padding: 0; overflow: hidden; background: #f8f9fa; }
-    #toolbar { height: 50px; padding: 5px 10px; background: #fff; border-bottom: 1px solid #dee2e6; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    #gantt_here { height: var(--gantt-height); width: 100%; }
-    .gantt_grid_scale .gantt_grid_head_cell { font-weight: 600; }
-    /* Адаптивность */
-    @media (max-width: 768px) {
-      #toolbar { height: auto; padding: 10px; }
-      :root { --gantt-height: calc(100vh - 100px); }
-      .btn { font-size: 0.75rem; padding: 0.25rem 0.5rem; }
-    }
-  </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GanttFlow — Дорожная карта проекта</title>
+  <meta name="description" content="Интерактивная диаграмма Ганта для планирования проектов: группы, задачи, подзадачи, вехи, зависимости" />
+
+  <!-- DHTMLX Gantt -->
+  <link rel="stylesheet" href="https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.css" />
+  <script src="https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.js"></script>
+
+  <!-- Inter font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- html-to-image for PNG/JPEG export -->
+  <script src="https://unpkg.com/html-to-image@1.11.11/dist/html-to-image.js"></script>
 </head>
 <body>
 
-  <div id="toolbar">
-    <strong class="me-2">📅 Roadmap</strong>
-    <button class="btn btn-sm btn-outline-primary" onclick="newProject()">Новый</button>
-    <button class="btn btn-sm btn-success" onclick="saveProject()">💾 Сохранить</button>
-    <button class="btn btn-sm btn-info" onclick="document.getElementById('fileInput').click()">📂 Загрузить</button>
-    <input type="file" id="fileInput" accept=".json" style="display:none" onchange="loadProject(this)">
-
-    <div class="btn-group btn-group-sm ms-auto">
-      <button class="btn btn-outline-secondary active" id="btnDay" onclick="setZoom('day', this)">День</button>
-      <button class="btn btn-outline-secondary" id="btnWeek" onclick="setZoom('week', this)">Неделя</button>
-      <button class="btn btn-outline-secondary" id="btnMonth" onclick="setZoom('month', this)">Месяц</button>
-    </div>
+<!-- ===== TOOLBAR ===== -->
+<header class="toolbar" role="banner">
+  <div class="toolbar__brand">
+    <svg class="brand-logo" viewBox="0 0 32 32" fill="none" aria-label="GanttFlow">
+      <rect x="2" y="8" width="14" height="5" rx="2" fill="var(--color-primary)"/>
+      <rect x="10" y="15" width="18" height="5" rx="2" fill="var(--color-accent)"/>
+      <rect x="4" y="22" width="12" height="5" rx="2" fill="var(--color-primary)" opacity="0.6"/>
+      <circle cx="26" cy="10" r="3" fill="var(--color-milestone)"/>
+    </svg>
+    <span class="brand-name">GanttFlow</span>
   </div>
 
-  <div id="gantt_here"></div>
+  <div class="toolbar__divider"></div>
+  <button class="btn btn--ghost btn--sm" id="btn-new-project" data-testid="button-new-project" title="Создать новый проект">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+    Новый
+  </button>
+  <div class="toolbar__divider"></div>
 
-  <!-- Модальное окно редактирования -->
-  <div class="modal fade" id="taskModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title">Редактирование элемента</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+  <div class="toolbar__project">
+    <input
+      id="project-name"
+      class="project-name-input"
+      type="text"
+      value="Разработка медицинской ИС"
+      aria-label="Название проекта"
+      data-testid="input-project-name"
+    />
+  </div>
+
+  <div class="toolbar__actions">
+    <!-- Add buttons -->
+    <div class="btn-group" role="group" aria-label="Добавить элемент">
+      <button class="btn btn--outline btn--sm" id="btn-add-group" data-testid="button-add-group" title="Добавить группу задач">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+        Группа
+      </button>
+      <button class="btn btn--outline btn--sm" id="btn-add-task" data-testid="button-add-task" title="Добавить задачу">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+        Задача
+      </button>
+      <button class="btn btn--outline btn--sm" id="btn-add-milestone" data-testid="button-add-milestone" title="Добавить веху">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+        Веха
+      </button>
+    </div>
+
+    <div class="toolbar__divider"></div>
+
+    <!-- Zoom controls -->
+    <div class="zoom-controls" role="group" aria-label="Масштаб">
+      <span class="zoom-label">Масштаб:</span>
+      <button class="btn btn--ghost btn--sm zoom-btn active" data-zoom="day" data-testid="button-zoom-day">День</button>
+      <button class="btn btn--ghost btn--sm zoom-btn" data-zoom="week" data-testid="button-zoom-week">Неделя</button>
+      <button class="btn btn--ghost btn--sm zoom-btn" data-zoom="month" data-testid="button-zoom-month">Месяц</button>
+      <button class="btn btn--ghost btn--sm zoom-btn" data-zoom="quarter" data-testid="button-zoom-quarter">Квартал</button>
+    </div>
+
+    <div class="toolbar__divider"></div>
+
+    <!-- Link help -->
+    <button class="btn btn--ghost btn--sm" id="btn-link-help" title="Как создавать связи между задачами">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      Связи?
+    </button>
+
+    <div class="toolbar__divider"></div>
+
+    <!-- File actions -->
+    <button class="btn btn--ghost btn--sm" id="btn-today" data-testid="button-today" title="Перейти к сегодняшнему дню">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+      Сегодня
+    </button>
+
+    <!-- Export dropdown -->
+    <div class="export-dropdown" id="export-dropdown">
+      <button class="btn btn--ghost btn--sm" id="btn-export" data-testid="button-export" title="Скачать диаграмму">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Скачать
+        <svg class="export-caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="export-menu" id="export-menu" role="menu">
+        <button class="export-menu-item" id="btn-export-png" data-testid="button-export-png" role="menuitem">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          Скачать PNG
+        </button>
+        <button class="export-menu-item" id="btn-export-jpeg" data-testid="button-export-jpeg" role="menuitem">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M15 21V9"/></svg>
+          Скачать JPEG
+        </button>
+      </div>
+    </div>
+    <button class="btn btn--primary btn--sm" id="btn-save" data-testid="button-save">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+      Сохранить
+    </button>
+    <label class="btn btn--ghost btn--sm" data-testid="button-load" style="cursor:pointer;" title="Загрузить проект из JSON">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Загрузить
+      <input type="file" id="file-input" accept=".json" style="display:none;" data-testid="input-file" />
+    </label>
+
+    <div class="toolbar__divider"></div>
+
+    <!-- Theme toggle -->
+    <button class="btn btn--ghost btn--icon" data-theme-toggle aria-label="Переключить тему" data-testid="button-theme-toggle">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ===== STATUS BAR ===== -->
+<div class="status-bar" id="status-bar" role="status" aria-live="polite">
+  <span id="status-tasks">0 задач</span>
+  <span class="status-sep">·</span>
+  <span id="status-selected">Ничего не выбрано</span>
+  <span class="status-sep">·</span>
+  <span id="status-unsaved" class="status-unsaved hidden">● Несохранённые изменения</span>
+  <span id="status-saved" class="status-saved">Сохранено</span>
+</div>
+
+<!-- ===== MAIN AREA ===== -->
+<main class="app-main">
+  <div id="gantt-container" class="gantt-container" data-testid="gantt-container"></div>
+</main>
+
+<!-- ===== TASK EDITOR MODAL ===== -->
+<div class="modal-overlay hidden" id="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal" id="task-modal">
+    <div class="modal__header">
+      <h2 class="modal__title" id="modal-title">Редактировать задачу</h2>
+      <button class="btn btn--ghost btn--icon modal__close" id="modal-close" data-testid="button-modal-close" aria-label="Закрыть">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <div class="modal__body">
+      <input type="hidden" id="edit-id" />
+
+      <div class="form-row">
+        <div class="form-group form-group--wide">
+          <label class="form-label" for="edit-title">Название <span class="required">*</span></label>
+          <div class="input-emoji-row">
+            <button class="emoji-btn" id="emoji-trigger" type="button" data-testid="button-emoji" title="Выбрать иконку">📋</button>
+            <input class="form-input" id="edit-title" type="text" placeholder="Название задачи" data-testid="input-task-title" />
+          </div>
+          <div class="emoji-picker hidden" id="emoji-picker">
+            <div class="emoji-grid">
+              📦 🚀 🧠 📋 ✅ 🔧 🎯 📊 🔍 💡 📝 🏗️ ⚙️ 🔬 📌 🚩 🎉 🔥 💎 🌟 🏁 📅 🔑 💻 🔒 📱 🌐 📡 🏥 💊
+            </div>
+          </div>
         </div>
-        <div class="modal-body">
-          <input type="hidden" id="taskId">
-          <div class="mb-2"><label class="form-label">Название</label><input type="text" class="form-control" id="taskText"></div>
-          <div class="row">
-            <div class="col mb-2"><label class="form-label">Дата начала</label><input type="date" class="form-control" id="startDate"></div>
-            <div class="col mb-2"><label class="form-label">Дата окончания</label><input type="date" class="form-control" id="endDate"></div>
-          </div>
-          <div class="row">
-            <div class="col mb-2"><label class="form-label">Ответственный</label><input type="text" class="form-control" id="assignee"></div>
-            <div class="col mb-2"><label class="form-label">Прогресс (%)</label><input type="number" class="form-control" id="progress" min="0" max="100"></div>
-          </div>
-          <div class="mb-2"><label class="form-label">Статус</label>
-            <select class="form-select" id="status">
-              <option value="planned">🟡 Планируется</option>
-              <option value="in_progress">🔵 В работе</option>
-              <option value="done">✅ Завершено</option>
-              <option value="blocked">🔴 Заблокировано</option>
-            </select>
-          </div>
-          <div class="mb-2"><label class="form-label">Цвет</label><input type="color" class="form-control form-control-color" id="color" value="#0d6efd"></div>
-          <div class="mb-2"><label class="form-label">Иконка (Emoji)</label><input type="text" class="form-control" id="emoji" placeholder="📦, 🚀, 🎯"></div>
-          <div class="form-text text-muted">Двойной клик по задаче открывает это окно. Связи создаются перетаскиванием от точки к точке на полосе.</div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="edit-type">Тип</label>
+          <select class="form-select" id="edit-type" data-testid="select-task-type">
+            <option value="task">Задача</option>
+            <option value="group">Группа</option>
+            <option value="milestone">Веха</option>
+          </select>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-danger btn-sm" onclick="deleteTask()">🗑 Удалить</button>
-          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Отмена</button>
-          <button type="button" class="btn btn-primary btn-sm" onclick="saveTaskChanges()">💾 Сохранить</button>
+        <div class="form-group">
+          <label class="form-label" for="edit-status">Статус</label>
+          <select class="form-select" id="edit-status" data-testid="select-task-status">
+            <option value="planned">Запланировано</option>
+            <option value="in_progress">В работе</option>
+            <option value="done">Завершено</option>
+            <option value="blocked">Блокировано</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row" id="date-row">
+        <div class="form-group">
+          <label class="form-label" for="edit-start">Дата начала <span class="required">*</span></label>
+          <input class="form-input" id="edit-start" type="date" data-testid="input-task-start" />
+        </div>
+        <div class="form-group" id="end-date-group">
+          <label class="form-label" for="edit-end">Дата окончания <span class="required">*</span></label>
+          <input class="form-input" id="edit-end" type="date" data-testid="input-task-end" />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="edit-assignee">Ответственный</label>
+          <input class="form-input" id="edit-assignee" type="text" placeholder="Имя или роль" data-testid="input-task-assignee" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="edit-color">Цвет</label>
+          <div class="color-row">
+            <input class="color-input" id="edit-color" type="color" value="#3b82f6" data-testid="input-task-color" />
+            <div class="color-presets">
+              <button class="color-preset" style="background:#3b82f6" data-color="#3b82f6" data-testid="color-preset-blue"></button>
+              <button class="color-preset" style="background:#10b981" data-color="#10b981" data-testid="color-preset-green"></button>
+              <button class="color-preset" style="background:#f59e0b" data-color="#f59e0b" data-testid="color-preset-amber"></button>
+              <button class="color-preset" style="background:#ef4444" data-color="#ef4444" data-testid="color-preset-red"></button>
+              <button class="color-preset" style="background:#8b5cf6" data-color="#8b5cf6" data-testid="color-preset-purple"></button>
+              <button class="color-preset" style="background:#06b6d4" data-color="#06b6d4" data-testid="color-preset-cyan"></button>
+              <button class="color-preset" style="background:#ec4899" data-color="#ec4899" data-testid="color-preset-pink"></button>
+              <button class="color-preset" style="background:#64748b" data-color="#64748b" data-testid="color-preset-slate"></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-row" id="progress-row">
+        <div class="form-group form-group--wide">
+          <label class="form-label" for="edit-progress">Прогресс: <span id="progress-display">0%</span></label>
+          <input class="form-range" id="edit-progress" type="range" min="0" max="100" value="0" step="5" data-testid="input-task-progress" />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group form-group--wide">
+          <label class="form-label" for="edit-notes">Описание / заметки</label>
+          <textarea class="form-input form-textarea" id="edit-notes" rows="3" placeholder="Дополнительная информация..." data-testid="input-task-notes"></textarea>
         </div>
       </div>
     </div>
+
+    <div class="modal__footer">
+      <button class="btn btn--danger btn--sm" id="btn-delete-task" data-testid="button-delete-task">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+        Удалить
+      </button>
+      <div class="modal__footer-right">
+        <button class="btn btn--outline btn--sm" id="btn-cancel-edit" data-testid="button-cancel-edit">Отмена</button>
+        <button class="btn btn--primary btn--sm" id="btn-save-task" data-testid="button-save-task">Сохранить</button>
+      </div>
+    </div>
   </div>
+</div>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dhtmlx-gantt@8.0.6/codebase/dhtmlxgantt.js"></script>
-  <script>
-    // === КОНФИГУРАЦИЯ GANTT ===
-    gantt.config.order_branch = true;
-    gantt.config.order_branch_free = true;
-    gantt.config.drag_links = true;
-    gantt.config.drag_move = true;
-    gantt.config.drag_resize = true;
-    gantt.config.lightbox = false; // Отключаем стандартное окно, используем своё
-    gantt.config.prevent_circular_links = true;
-    gantt.config.xml_date = "%Y-%m-%d";
-    gantt.config.open_tree_initially = true;
-    gantt.config.show_links = true;
-    gantt.config.scale_unit = "week";
-    gantt.config.date_scale = "%d %M";
-    gantt.config.subscales = [{unit:"day", step:1, date:"%D"}];
+<!-- ===== LINK MODAL ===== -->
+<div class="modal-overlay hidden" id="link-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="link-modal-title">
+  <div class="modal modal--sm" id="link-modal">
+    <div class="modal__header">
+      <h2 class="modal__title" id="link-modal-title">Зависимость</h2>
+      <button class="btn btn--ghost btn--icon" id="link-modal-close" data-testid="button-link-modal-close" aria-label="Закрыть">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal__body">
+      <div class="form-group">
+        <label class="form-label">Тип связи</label>
+        <select class="form-select" id="link-type" data-testid="select-link-type">
+          <option value="0">FS — Финиш → Старт</option>
+          <option value="1">SS — Старт → Старт</option>
+          <option value="2">FF — Финиш → Финиш</option>
+          <option value="3">SF — Старт → Финиш</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--danger btn--sm" id="btn-delete-link" data-testid="button-delete-link">Удалить связь</button>
+      <div class="modal__footer-right">
+        <button class="btn btn--outline btn--sm" id="btn-cancel-link" data-testid="button-cancel-link">Отмена</button>
+        <button class="btn btn--primary btn--sm" id="btn-save-link" data-testid="button-save-link">Сохранить</button>
+      </div>
+    </div>
+  </div>
+</div>
 
-    // Маппинг между форматом спецификации и внутренним форматом DHTMLX
-    const LINK_TYPE_MAP = {
-      specToGantt: { "FS": "0", "SS": "1", "FF": "2", "SF": "3" },
-      ganttToSpec: { "0": "FS", "1": "SS", "2": "FF", "3": "SF" }
-    };
+<!-- ===== IMPORT MODAL ===== -->
+<div class="modal-overlay hidden" id="import-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
+  <div class="modal modal--sm" id="import-modal">
+    <div class="modal__header">
+      <h2 class="modal__title" id="import-modal-title">Загрузить проект</h2>
+      <button class="btn btn--ghost btn--icon" id="import-modal-close" aria-label="Закрыть">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal__body">
+      <div class="import-preview" id="import-preview">
+        <div class="import-preview__row">
+          <span class="import-preview__label">Проект:</span>
+          <strong id="import-name">—</strong>
+        </div>
+        <div class="import-preview__row">
+          <span class="import-preview__label">Версия схемы:</span>
+          <span id="import-schema">—</span>
+        </div>
+        <div class="import-preview__row">
+          <span class="import-preview__label">Элементов:</span>
+          <span id="import-count">—</span>
+        </div>
+        <div class="import-preview__row">
+          <span class="import-preview__label">Связей:</span>
+          <span id="import-links">—</span>
+        </div>
+      </div>
+      <p class="import-warning" id="import-warning" style="display:none;"></p>
+    </div>
+    <div class="modal__footer">
+      <div class="modal__footer-right">
+        <button class="btn btn--outline btn--sm" id="btn-cancel-import">Отмена</button>
+        <button class="btn btn--primary btn--sm" id="btn-confirm-import" data-testid="button-confirm-import">Загрузить</button>
+      </div>
+    </div>
+  </div>
+</div>
 
-    // Кастомный шаблон для отображения эмодзи в сетке
-    gantt.templates.task_text = function(start, end, task) {
-      return (task.emoji ? task.emoji + ' ' : '') + task.text;
-    };
+<!-- ===== CONFIRM DELETE MODAL ===== -->
+<div class="modal-overlay hidden" id="confirm-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+  <div class="modal modal--xs">
+    <div class="modal__header">
+      <h2 class="modal__title" id="confirm-title">Подтвердить удаление</h2>
+    </div>
+    <div class="modal__body">
+      <p id="confirm-text">Вы уверены, что хотите удалить этот элемент?</p>
+    </div>
+    <div class="modal__footer">
+      <div class="modal__footer-right">
+        <button class="btn btn--outline btn--sm" id="btn-cancel-confirm" data-testid="button-cancel-confirm">Отмена</button>
+        <button class="btn btn--danger btn--sm" id="btn-ok-confirm" data-testid="button-ok-confirm">Удалить</button>
+      </div>
+    </div>
+  </div>
+</div>
 
-    // Кастомный цвет задачи
-    gantt.templates.task_class = function(start, end, task) {
-      return task.color ? 'gantt_task_color' : '';
-    };
-    gantt.templates.task_style = function(start, end, task) {
-      if(task.type === gantt.config.types.milestone) return "background:#dc3545; border-radius:4px;";
-      return task.color ? "background:" + task.color + ";" : "";
-    };
+<!-- Context menu -->
+<div class="context-menu hidden" id="context-menu" role="menu">
+  <button class="context-menu__item" id="ctx-edit" role="menuitem" data-testid="ctx-edit">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+    Редактировать
+  </button>
+  <button class="context-menu__item" id="ctx-add-child" role="menuitem" data-testid="ctx-add-child">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+    Добавить дочерний
+  </button>
+  <button class="context-menu__item" id="ctx-duplicate" role="menuitem" data-testid="ctx-duplicate">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+    Дублировать
+  </button>
+  <div class="context-menu__separator"></div>
+  <button class="context-menu__item context-menu__item--danger" id="ctx-delete" role="menuitem" data-testid="ctx-delete">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+    Удалить
+  </button>
+</div>
 
-    gantt.init("gantt_here");
 
-    // === ЗАГРУЗКА ДЕМОНСТРАЦИОННЫХ ДАННЫХ ===
-    const sampleData = {
-      data: [
-        {id:"grp_1", text:"📦 Аналитика", start_date:"2026-04-20", end_date:"2026-05-10", parent:0, open:true, type:"project", progress:0, status:"planned", color:"#0d6efd", assignee:"Команда"},
-        {id:"task_1", text:"🧠 Проектирование архитектуры", start_date:"2026-04-20", end_date:"2026-04-25", parent:"grp_1", progress:35, status:"in_progress", color:"#20c997", assignee:"Анна"},
-        {id:"mil_1", text:"🚩 Согласование ТЗ", start_date:"2026-04-26", end_date:"2026-04-26", parent:"grp_1", type:"milestone", progress:0, status:"planned", color:"#dc3545", assignee:"Иван"},
-        {id:"grp_2", text:"💻 Разработка", start_date:"2026-05-11", end_date:"2026-06-15", parent:0, open:true, type:"project", progress:0, status:"planned", color:"#fd7e14", assignee:"Разработка"},
-        {id:"task_2", text:"⚙️ Backend API", start_date:"2026-05-11", end_date:"2026-05-30", parent:"grp_2", progress:10, status:"in_progress", color:"#6f42c1", assignee:"Петр"},
-        {id:"task_3", text:"🎨 Frontend UI", start_date:"2026-05-20", end_date:"2026-06-10", parent:"grp_2", progress:0, status:"planned", color:"#0dcaf0", assignee:"Мария"},
-      ],
-      links: [
-        {id:"link_1", source:"task_1", target:"mil_1", type:"0"},
-        {id:"link_2", source:"mil_1", target:"task_2", type:"0"},
-        {id:"link_3", source:"task_2", target:"task_3", type:"1"}
-      ]
-    };
-    gantt.parse(sampleData);
+<!-- ===== NEW PROJECT MODAL ===== -->
+<div class="modal-overlay hidden" id="new-project-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="new-project-title">
+  <div class="modal modal--sm" id="new-project-modal">
+    <div class="modal__header">
+      <h2 class="modal__title" id="new-project-title">Новый проект</h2>
+      <button class="btn btn--ghost btn--icon" id="new-project-close" aria-label="Закрыть">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal__body">
+      <div class="form-group">
+        <label class="form-label" for="new-project-name">Название проекта <span class="required">*</span></label>
+        <input class="form-input" id="new-project-name" type="text" placeholder="Например: Разработка сервиса" data-testid="input-new-project-name" />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="new-project-desc">Описание</label>
+        <textarea class="form-input form-textarea" id="new-project-desc" rows="2" placeholder="Краткое описание проекта..." data-testid="input-new-project-desc"></textarea>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <div class="modal__footer-right">
+        <button class="btn btn--outline btn--sm" id="btn-cancel-new-project" data-testid="button-cancel-new-project">Отмена</button>
+        <button class="btn btn--primary btn--sm" id="btn-create-project" data-testid="button-create-project">Создать</button>
+      </div>
+    </div>
+  </div>
+</div>
 
-    // === ZOOM CONTROLS ===
-    function setZoom(unit, btn) {
-      document.querySelectorAll('.btn-group button').forEach(b => b.classList.remove('active'));
-      if(btn) btn.classList.add('active');
-
-      if(unit === 'day') {
-        gantt.config.scale_unit = "day";
-        gantt.config.date_scale = "%d %M";
-        gantt.config.subscales = [{unit:"hour", step:4, date:"%H:%i"}];
-      } else if(unit === 'week') {
-        gantt.config.scale_unit = "week";
-        gantt.config.date_scale = "%d %M";
-        gantt.config.subscales = [{unit:"day", step:1, date:"%D"}];
-      } else if(unit === 'month') {
-        gantt.config.scale_unit = "month";
-        gantt.config.date_scale = "%F %Y";
-        gantt.config.subscales = [{unit:"week", step:1, date:"нед. %W"}];
-      }
-      gantt.render();
+<script src="app.js"></script>
+<script data-pplx-inline-edit>
+(function(){
+  if(window===window.top)return;
+  function inlineAll(orig,clone){
+    if(orig.nodeType!==1)return;
+    try{
+      var cs=getComputedStyle(orig);
+      var t='';
+      for(var i=0;i<cs.length;i++){t+=cs[i]+':'+cs.getPropertyValue(cs[i])+';';}
+      clone.style.cssText=t;
+    }catch(e){}
+    var oc=orig.children,cc=clone.children;
+    for(var j=0;j<oc.length&&j<cc.length;j++){inlineAll(oc[j],cc[j]);}
+  }
+  function stripExternal(clone){
+    var imgs=clone.querySelectorAll('img');
+    for(var i=0;i<imgs.length;i++){
+      var s=imgs[i].getAttribute('src');
+      if(s&&!s.startsWith('data:'))imgs[i].removeAttribute('src');
     }
-
-    // === МОДАЛЬНОЕ ОКНО ===
-    const taskModal = new bootstrap.Modal(document.getElementById('taskModal'));
-
-    gantt.attachEvent("onTaskDblClick", function(id, e) {
-      const task = gantt.getTask(id);
-      document.getElementById('taskId').value = id;
-      document.getElementById('taskText').value = task.text;
-      document.getElementById('startDate').value = task.start_date ? task.start_date.toISOString().slice(0,10) : '';
-      document.getElementById('endDate').value = task.end_date ? task.end_date.toISOString().slice(0,10) : '';
-      document.getElementById('assignee').value = task.assignee || '';
-      document.getElementById('progress').value = task.progress || 0;
-      document.getElementById('status').value = task.status || 'planned';
-      document.getElementById('color').value = task.color || '#0d6efd';
-      document.getElementById('emoji').value = task.emoji || '';
-
-      // Скрыть даты для вех
-      const isMilestone = task.type === gantt.config.types.milestone;
-      document.getElementById('startDate').disabled = isMilestone;
-      document.getElementById('endDate').disabled = isMilestone;
-
-      taskModal.show();
-    });
-
-    function saveTaskChanges() {
-      const id = document.getElementById('taskId').value;
-      const task = gantt.getTask(id);
-      const startVal = document.getElementById('startDate').value;
-      const endVal = document.getElementById('endDate').value;
-
-      if(startVal && endVal && new Date(endVal) < new Date(startVal)) {
-        alert("⚠️ Дата окончания не может быть раньше даты начала!");
-        return;
-      }
-
-      task.text = document.getElementById('taskText').value;
-      if(startVal && task.type !== gantt.config.types.milestone) task.start_date = new Date(startVal);
-      if(endVal && task.type !== gantt.config.types.milestone) task.end_date = new Date(endVal);
-      task.assignee = document.getElementById('assignee').value;
-      task.progress = parseInt(document.getElementById('progress').value) || 0;
-      task.status = document.getElementById('status').value;
-      task.color = document.getElementById('color').value;
-      task.emoji = document.getElementById('emoji').value;
-
-      gantt.updateTask(id);
-      taskModal.hide();
-    }
-
-    function deleteTask() {
-      if(confirm("Удалить задачу и все её дочерние элементы?")) {
-        gantt.deleteTask(document.getElementById('taskId').value);
-        taskModal.hide();
+    var all=clone.querySelectorAll('*');
+    for(var i=0;i<all.length;i++){
+      var st=all[i].style.cssText;
+      if(st&&st.indexOf('url(')>=0){
+        all[i].style.cssText=st.replace(/url\(["']?(?!data:)[^)"']*["']?\)/gi,'none');
       }
     }
-
-    // === СОХРАНЕНИЕ / ЗАГРУЗКА JSON (ПО СПЕЦИФИКАЦИИ) ===
-    function saveProject() {
-      const rawData = gantt.serialize();
-      const specData = {
-        schema_version: 1,
-        project: { id: "proj_001", name: "Roadmap Project", description: "", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-        items: rawData.data.map(t => ({
-          id: t.id, type: t.type === "project" ? "group" : t.type, parent_id: t.parent || null,
-          title: t.text, start_date: t.start_date ? t.start_date.toISOString().slice(0,10) : null,
-          end_date: t.end_date ? t.end_date.toISOString().slice(0,10) : null,
-          assignee: t.assignee, color: t.color, emoji: t.emoji, progress: t.progress,
-          status: t.status, sort_order: 0, is_expanded: t.open !== false, notes: ""
-        })),
-        links: rawData.links.map(l => ({
-          id: l.id,
-          source_id: l.source,
-          target_id: l.target,
-          type: LINK_TYPE_MAP.ganttToSpec[l.type] || "FS"
-        }))
+  }
+  var scrollRaf=0;
+  function emitScroll(){
+    scrollRaf=0;
+    var x=window.scrollX||window.pageXOffset||0;
+    var y=window.scrollY||window.pageYOffset||0;
+    window.parent.postMessage({type:'INLINE_EDIT_SCROLL',scrollX:x,scrollY:y},'*');
+  }
+  window.addEventListener('scroll',function(){
+    if(scrollRaf)return;
+    scrollRaf=requestAnimationFrame(emitScroll);
+  },{passive:true,capture:true});
+  emitScroll();
+  window.addEventListener('message',function(e){
+    if(!e.data||e.data.type!=='INLINE_EDIT_CAPTURE_REQUEST')return;
+    var scrollX=window.scrollX||window.pageXOffset||0;
+    var scrollY=window.scrollY||window.pageYOffset||0;
+    var w=window.innerWidth,h=window.innerHeight;
+    try{
+      var clone=document.documentElement.cloneNode(true);
+      var rm=clone.querySelectorAll('script,link[rel="stylesheet"],style');
+      for(var i=0;i<rm.length;i++){rm[i].remove();}
+      inlineAll(document.documentElement,clone);
+      stripExternal(clone);
+      var html=new XMLSerializer().serializeToString(clone);
+      var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'">'
+        +'<foreignObject width="100%" height="100%">'
+        +'<div xmlns="http://www.w3.org/1999/xhtml" style="width:'+w+'px;height:'+h+'px;overflow:hidden">'
+        +'<div style="transform:translate(-'+scrollX+'px,-'+scrollY+'px);transform-origin:top left">'
+        +html+'</div></div></foreignObject></svg>';
+      var svgUrl='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+      var img=new Image();
+      img.onload=function(){
+        var c=document.createElement('canvas');c.width=w;c.height=h;
+        c.getContext('2d').drawImage(img,0,0);
+        window.parent.postMessage({type:'INLINE_EDIT_SCREENSHOT_RESULT',dataUrl:c.toDataURL('image/png'),scrollX:scrollX,scrollY:scrollY},'*');
       };
-
-      const blob = new Blob([JSON.stringify(specData, null, 2)], {type: "application/json"});
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `roadmap_${new Date().toISOString().slice(0,10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }
-
-    function loadProject(input) {
-      const file = input.files[0];
-      if(!file) return;
-      const reader = new FileReader();
-      reader.onload = function(e) {
-        try {
-          const json = JSON.parse(e.target.result);
-          if(!json.items || json.schema_version !== 1) throw new Error("Неподдерживаемая версия формата");
-
-          // Валидация циклов и дат перед загрузкой
-          json.items.forEach(i => {
-            if(i.start_date && i.end_date && new Date(i.end_date) < new Date(i.start_date)) {
-              throw new Error(`Ошибка в задаче "${i.title}": дата окончания раньше начала`);
-            }
-          });
-
-          const ganttData = {
-            data: json.items.map(i => ({
-              id: i.id, text: i.title, start_date: i.start_date, end_date: i.end_date,
-              parent: i.parent_id, type: i.type === "group" ? "project" : i.type,
-              progress: i.progress || 0, status: i.status, assignee: i.assignee,
-              color: i.color, emoji: i.emoji, open: i.is_expanded !== false
-            })),
-            links: json.links.map(l => ({
-              id: l.id,
-              source: l.source_id,
-              target: l.target_id,
-              type: LINK_TYPE_MAP.specToGantt[l.type] || "0"
-            }))
-          };
-          gantt.clearAll();
-          gantt.parse(ganttData);
-          alert("✅ Проект успешно загружен!");
-        } catch(err) {
-          alert("❌ Ошибка загрузки: " + err.message);
-        }
+      img.onerror=function(){
+        window.parent.postMessage({type:'INLINE_EDIT_SCREENSHOT_RESULT',dataUrl:null,scrollX:scrollX,scrollY:scrollY},'*');
       };
-      reader.readAsText(file);
+      img.src=svgUrl;
+    }catch(err){
+      window.parent.postMessage({type:'INLINE_EDIT_SCREENSHOT_RESULT',dataUrl:null,scrollX:scrollX,scrollY:scrollY},'*');
     }
-
-    function newProject() {
-      if(confirm("Создать новый проект? Несохраненные изменения будут потеряны.")) {
-        gantt.clearAll();
-        gantt.parse({data:[{id:"root_1", text:"📦 Новая группа", start_date:"2026-04-16", end_date:"2026-05-16", parent:0, type:"project", progress:0, status:"planned", color:"#0d6efd"}], links:[]});
-      }
-    }
-
-    // Адаптивный ресайз
-    window.addEventListener('resize', () => gantt.render());
-  </script>
-</body>
+  });
+})();
+</script></body>
 </html>
