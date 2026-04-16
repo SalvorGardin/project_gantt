@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gantt Roadmap | Дорожная карта проекта</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/dhtmlx-gantt@8.0.6/codebase/dhtmlxgantt.css">
+  <style>
+    :root { --gantt-height: calc(100vh - 60px); }
+    body { margin: 0; padding: 0; overflow: hidden; background: #f8f9fa; }
+    #toolbar { height: 50px; padding: 5px 10px; background: #fff; border-bottom: 1px solid #dee2e6; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #gantt_here { height: var(--gantt-height); width: 100%; }
+    .gantt_grid_scale .gantt_grid_head_cell { font-weight: 600; }
+    /* Адаптивность */
+    @media (max-width: 768px) {
+      #toolbar { height: auto; padding: 10px; }
+      :root { --gantt-height: calc(100vh - 100px); }
+      .btn { font-size: 0.75rem; padding: 0.25rem 0.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="toolbar">
+    <strong class="me-2">📅 Roadmap</strong>
+    <button class="btn btn-sm btn-outline-primary" onclick="newProject()">Новый</button>
+    <button class="btn btn-sm btn-success" onclick="saveProject()">💾 Сохранить</button>
+    <button class="btn btn-sm btn-info" onclick="document.getElementById('fileInput').click()">📂 Загрузить</button>
+    <input type="file" id="fileInput" accept=".json" style="display:none" onchange="loadProject(this)">
+
+    <div class="btn-group btn-group-sm ms-auto">
+      <button class="btn btn-outline-secondary active" id="btnDay" onclick="setZoom('day', this)">День</button>
+      <button class="btn btn-outline-secondary" id="btnWeek" onclick="setZoom('week', this)">Неделя</button>
+      <button class="btn btn-outline-secondary" id="btnMonth" onclick="setZoom('month', this)">Месяц</button>
+    </div>
+  </div>
+
+  <div id="gantt_here"></div>
+
+  <!-- Модальное окно редактирования -->
+  <div class="modal fade" id="taskModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Редактирование элемента</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="taskId">
+          <div class="mb-2"><label class="form-label">Название</label><input type="text" class="form-control" id="taskText"></div>
+          <div class="row">
+            <div class="col mb-2"><label class="form-label">Дата начала</label><input type="date" class="form-control" id="startDate"></div>
+            <div class="col mb-2"><label class="form-label">Дата окончания</label><input type="date" class="form-control" id="endDate"></div>
+          </div>
+          <div class="row">
+            <div class="col mb-2"><label class="form-label">Ответственный</label><input type="text" class="form-control" id="assignee"></div>
+            <div class="col mb-2"><label class="form-label">Прогресс (%)</label><input type="number" class="form-control" id="progress" min="0" max="100"></div>
+          </div>
+          <div class="mb-2"><label class="form-label">Статус</label>
+            <select class="form-select" id="status">
+              <option value="planned">🟡 Планируется</option>
+              <option value="in_progress">🔵 В работе</option>
+              <option value="done">✅ Завершено</option>
+              <option value="blocked">🔴 Заблокировано</option>
+            </select>
+          </div>
+          <div class="mb-2"><label class="form-label">Цвет</label><input type="color" class="form-control form-control-color" id="color" value="#0d6efd"></div>
+          <div class="mb-2"><label class="form-label">Иконка (Emoji)</label><input type="text" class="form-control" id="emoji" placeholder="📦, 🚀, 🎯"></div>
+          <div class="form-text text-muted">Двойной клик по задаче открывает это окно. Связи создаются перетаскиванием от точки к точке на полосе.</div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-danger btn-sm" onclick="deleteTask()">🗑 Удалить</button>
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Отмена</button>
+          <button type="button" class="btn btn-primary btn-sm" onclick="saveTaskChanges()">💾 Сохранить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dhtmlx-gantt@8.0.6/codebase/dhtmlxgantt.js"></script>
+  <script>
+    // === КОНФИГУРАЦИЯ GANTT ===
+    gantt.config.order_branch = true;
+    gantt.config.order_branch_free = true;
+    gantt.config.drag_links = true;
+    gantt.config.drag_move = true;
+    gantt.config.drag_resize = true;
+    gantt.config.lightbox = false; // Отключаем стандартное окно, используем своё
+    gantt.config.prevent_circular_links = true;
+    gantt.config.xml_date = "%Y-%m-%d";
+    gantt.config.open_tree_initially = true;
+    gantt.config.show_links = true;
+    gantt.config.scale_unit = "week";
+    gantt.config.date_scale = "%d %M";
+    gantt.config.subscales = [{unit:"day", step:1, date:"%D"}];
+
+    // Маппинг между форматом спецификации и внутренним форматом DHTMLX
+    const LINK_TYPE_MAP = {
+      specToGantt: { "FS": "0", "SS": "1", "FF": "2", "SF": "3" },
+      ganttToSpec: { "0": "FS", "1": "SS", "2": "FF", "3": "SF" }
+    };
+
+    // Кастомный шаблон для отображения эмодзи в сетке
+    gantt.templates.task_text = function(start, end, task) {
+      return (task.emoji ? task.emoji + ' ' : '') + task.text;
+    };
+
+    // Кастомный цвет задачи
+    gantt.templates.task_class = function(start, end, task) {
+      return task.color ? 'gantt_task_color' : '';
+    };
+    gantt.templates.task_style = function(start, end, task) {
+      if(task.type === gantt.config.types.milestone) return "background:#dc3545; border-radius:4px;";
+      return task.color ? "background:" + task.color + ";" : "";
+    };
+
+    gantt.init("gantt_here");
+
+    // === ЗАГРУЗКА ДЕМОНСТРАЦИОННЫХ ДАННЫХ ===
+    const sampleData = {
+      data: [
+        {id:"grp_1", text:"📦 Аналитика", start_date:"2026-04-20", end_date:"2026-05-10", parent:0, open:true, type:"project", progress:0, status:"planned", color:"#0d6efd", assignee:"Команда"},
+        {id:"task_1", text:"🧠 Проектирование архитектуры", start_date:"2026-04-20", end_date:"2026-04-25", parent:"grp_1", progress:35, status:"in_progress", color:"#20c997", assignee:"Анна"},
+        {id:"mil_1", text:"🚩 Согласование ТЗ", start_date:"2026-04-26", end_date:"2026-04-26", parent:"grp_1", type:"milestone", progress:0, status:"planned", color:"#dc3545", assignee:"Иван"},
+        {id:"grp_2", text:"💻 Разработка", start_date:"2026-05-11", end_date:"2026-06-15", parent:0, open:true, type:"project", progress:0, status:"planned", color:"#fd7e14", assignee:"Разработка"},
+        {id:"task_2", text:"⚙️ Backend API", start_date:"2026-05-11", end_date:"2026-05-30", parent:"grp_2", progress:10, status:"in_progress", color:"#6f42c1", assignee:"Петр"},
+        {id:"task_3", text:"🎨 Frontend UI", start_date:"2026-05-20", end_date:"2026-06-10", parent:"grp_2", progress:0, status:"planned", color:"#0dcaf0", assignee:"Мария"},
+      ],
+      links: [
+        {id:"link_1", source:"task_1", target:"mil_1", type:"0"},
+        {id:"link_2", source:"mil_1", target:"task_2", type:"0"},
+        {id:"link_3", source:"task_2", target:"task_3", type:"1"}
+      ]
+    };
+    gantt.parse(sampleData);
+
+    // === ZOOM CONTROLS ===
+    function setZoom(unit, btn) {
+      document.querySelectorAll('.btn-group button').forEach(b => b.classList.remove('active'));
+      if(btn) btn.classList.add('active');
+
+      if(unit === 'day') {
+        gantt.config.scale_unit = "day";
+        gantt.config.date_scale = "%d %M";
+        gantt.config.subscales = [{unit:"hour", step:4, date:"%H:%i"}];
+      } else if(unit === 'week') {
+        gantt.config.scale_unit = "week";
+        gantt.config.date_scale = "%d %M";
+        gantt.config.subscales = [{unit:"day", step:1, date:"%D"}];
+      } else if(unit === 'month') {
+        gantt.config.scale_unit = "month";
+        gantt.config.date_scale = "%F %Y";
+        gantt.config.subscales = [{unit:"week", step:1, date:"нед. %W"}];
+      }
+      gantt.render();
+    }
+
+    // === МОДАЛЬНОЕ ОКНО ===
+    const taskModal = new bootstrap.Modal(document.getElementById('taskModal'));
+
+    gantt.attachEvent("onTaskDblClick", function(id, e) {
+      const task = gantt.getTask(id);
+      document.getElementById('taskId').value = id;
+      document.getElementById('taskText').value = task.text;
+      document.getElementById('startDate').value = task.start_date ? task.start_date.toISOString().slice(0,10) : '';
+      document.getElementById('endDate').value = task.end_date ? task.end_date.toISOString().slice(0,10) : '';
+      document.getElementById('assignee').value = task.assignee || '';
+      document.getElementById('progress').value = task.progress || 0;
+      document.getElementById('status').value = task.status || 'planned';
+      document.getElementById('color').value = task.color || '#0d6efd';
+      document.getElementById('emoji').value = task.emoji || '';
+
+      // Скрыть даты для вех
+      const isMilestone = task.type === gantt.config.types.milestone;
+      document.getElementById('startDate').disabled = isMilestone;
+      document.getElementById('endDate').disabled = isMilestone;
+
+      taskModal.show();
+    });
+
+    function saveTaskChanges() {
+      const id = document.getElementById('taskId').value;
+      const task = gantt.getTask(id);
+      const startVal = document.getElementById('startDate').value;
+      const endVal = document.getElementById('endDate').value;
+
+      if(startVal && endVal && new Date(endVal) < new Date(startVal)) {
+        alert("⚠️ Дата окончания не может быть раньше даты начала!");
+        return;
+      }
+
+      task.text = document.getElementById('taskText').value;
+      if(startVal && task.type !== gantt.config.types.milestone) task.start_date = new Date(startVal);
+      if(endVal && task.type !== gantt.config.types.milestone) task.end_date = new Date(endVal);
+      task.assignee = document.getElementById('assignee').value;
+      task.progress = parseInt(document.getElementById('progress').value) || 0;
+      task.status = document.getElementById('status').value;
+      task.color = document.getElementById('color').value;
+      task.emoji = document.getElementById('emoji').value;
+
+      gantt.updateTask(id);
+      taskModal.hide();
+    }
+
+    function deleteTask() {
+      if(confirm("Удалить задачу и все её дочерние элементы?")) {
+        gantt.deleteTask(document.getElementById('taskId').value);
+        taskModal.hide();
+      }
+    }
+
+    // === СОХРАНЕНИЕ / ЗАГРУЗКА JSON (ПО СПЕЦИФИКАЦИИ) ===
+    function saveProject() {
+      const rawData = gantt.serialize();
+      const specData = {
+        schema_version: 1,
+        project: { id: "proj_001", name: "Roadmap Project", description: "", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        items: rawData.data.map(t => ({
+          id: t.id, type: t.type === "project" ? "group" : t.type, parent_id: t.parent || null,
+          title: t.text, start_date: t.start_date ? t.start_date.toISOString().slice(0,10) : null,
+          end_date: t.end_date ? t.end_date.toISOString().slice(0,10) : null,
+          assignee: t.assignee, color: t.color, emoji: t.emoji, progress: t.progress,
+          status: t.status, sort_order: 0, is_expanded: t.open !== false, notes: ""
+        })),
+        links: rawData.links.map(l => ({
+          id: l.id,
+          source_id: l.source,
+          target_id: l.target,
+          type: LINK_TYPE_MAP.ganttToSpec[l.type] || "FS"
+        }))
+      };
+
+      const blob = new Blob([JSON.stringify(specData, null, 2)], {type: "application/json"});
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `roadmap_${new Date().toISOString().slice(0,10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    function loadProject(input) {
+      const file = input.files[0];
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const json = JSON.parse(e.target.result);
+          if(!json.items || json.schema_version !== 1) throw new Error("Неподдерживаемая версия формата");
+
+          // Валидация циклов и дат перед загрузкой
+          json.items.forEach(i => {
+            if(i.start_date && i.end_date && new Date(i.end_date) < new Date(i.start_date)) {
+              throw new Error(`Ошибка в задаче "${i.title}": дата окончания раньше начала`);
+            }
+          });
+
+          const ganttData = {
+            data: json.items.map(i => ({
+              id: i.id, text: i.title, start_date: i.start_date, end_date: i.end_date,
+              parent: i.parent_id, type: i.type === "group" ? "project" : i.type,
+              progress: i.progress || 0, status: i.status, assignee: i.assignee,
+              color: i.color, emoji: i.emoji, open: i.is_expanded !== false
+            })),
+            links: json.links.map(l => ({
+              id: l.id,
+              source: l.source_id,
+              target: l.target_id,
+              type: LINK_TYPE_MAP.specToGantt[l.type] || "0"
+            }))
+          };
+          gantt.clearAll();
+          gantt.parse(ganttData);
+          alert("✅ Проект успешно загружен!");
+        } catch(err) {
+          alert("❌ Ошибка загрузки: " + err.message);
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function newProject() {
+      if(confirm("Создать новый проект? Несохраненные изменения будут потеряны.")) {
+        gantt.clearAll();
+        gantt.parse({data:[{id:"root_1", text:"📦 Новая группа", start_date:"2026-04-16", end_date:"2026-05-16", parent:0, type:"project", progress:0, status:"planned", color:"#0d6efd"}], links:[]});
+      }
+    }
+
+    // Адаптивный ресайз
+    window.addEventListener('resize', () => gantt.render());
+  </script>
+</body>
+</html>
