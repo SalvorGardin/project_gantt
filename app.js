@@ -1077,7 +1077,7 @@
     // Theme toggle
     const themeBtn = document.querySelector('[data-theme-toggle]');
     const html = document.documentElement;
-    let theme = matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light';
+    let theme = 'light';
     html.setAttribute('data-theme', theme);
 
     if (themeBtn) {
