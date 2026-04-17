@@ -327,7 +327,10 @@ input, select, textarea { font: inherit; color: inherit; }
   background: var(--color-surface) !important;
   border-right: 2px solid var(--color-border) !important;
 }
+
+/* Column headers + resize handle */
 .gantt_grid_head_cell {
+  position: relative;
   background: var(--color-surface-2) !important;
   color: var(--color-text-muted) !important;
   font-size: var(--text-xs) !important;
@@ -336,6 +339,23 @@ input, select, textarea { font: inherit; color: inherit; }
   letter-spacing: 0.04em;
   border-right: 1px solid var(--color-divider) !important;
   border-bottom: 2px solid var(--color-border) !important;
+}
+/* Custom column resize handle (JS-driven, DHTMLX GPL doesn't include it) */
+.gantt_grid_head_cell::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 20%;
+  height: 60%;
+  width: 2px;
+  background: var(--color-primary);
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+  border-radius: 1px;
+}
+.gantt_grid_head_cell:hover::after {
+  opacity: 0.4;
 }
 
 /* Grid rows */

@@ -90,7 +90,8 @@
     editingTaskId: null,
     editingLinkId: null,
     contextTaskId: null,
-    currentZoom: 'week'
+    currentZoom: 'week',
+    selectedTaskId: null
   };
 
   // ============================================================
@@ -338,6 +339,15 @@
     });
     gantt.attachEvent('onAfterTaskUpdate', function (id) {
       recalcParentDates(id);
+    });
+
+    // Track selected task (for toolbar + Задача / + Веха context)
+    gantt.attachEvent('onTaskClick', function (id) {
+      state.selectedTaskId = id;
+      return true;
+    });
+    gantt.attachEvent('onEmptyClick', function () {
+      state.selectedTaskId = null;
     });
 
     // Track first-time link creation to show hint
@@ -682,7 +692,11 @@
       endDateGroup.style.display = 'none';
     } else {
       endDateGroup.style.display = '';
-      document.getElementById('edit-end').value = toDateStr(task.end_date);
+      // DHTMLX stores end_date exclusive (next day after last day).
+      // Show the user the inclusive last day: subtract 1 day.
+      const endForEdit = new Date(task.end_date);
+      endForEdit.setDate(endForEdit.getDate() - 1);
+      document.getElementById('edit-end').value = fmt(endForEdit);
     }
 
     // Progress
@@ -726,9 +740,12 @@
     if (typeVal !== 'milestone' && !endStr) { showToast('Укажите дату окончания', 'error'); return; }
 
     const startDate = gantt.date.str_to_date('%Y-%m-%d')(startStr);
-    const endDate = gantt.date.str_to_date('%Y-%m-%d')(endStr);
+    // User enters inclusive end date → convert to exclusive (next day) for DHTMLX
+    const endDateInclusive = gantt.date.str_to_date('%Y-%m-%d')(endStr);
+    const endDate = new Date(endDateInclusive);
+    if (typeVal !== 'milestone') endDate.setDate(endDate.getDate() + 1);
 
-    if (typeVal !== 'milestone' && endDate < startDate) {
+    if (typeVal !== 'milestone' && endDateInclusive < startDate) {
       showToast('Дата окончания не может быть раньше даты начала', 'error'); return;
     }
 
@@ -743,12 +760,14 @@
       // New task — add to gantt
       // text stores ONLY the title; emoji is stored separately and rendered by column template
       const newId = typeVal + '_' + Date.now();
+      // end_date for addTask: if passed as string DHTMLX adds 1 day automatically;
+      // pass as Date object (already +1 day) to keep consistent with updateTask path.
       gantt.addTask({
         id: newId,
         text: title,
         raw_title: title,
-        start_date: startStr,
-        end_date: endStr,
+        start_date: startDate,
+        end_date: endDate,  // exclusive Date object
         type: ganttType,
         color: color,
         emoji: emoji,
@@ -1030,6 +1049,26 @@
     setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 300ms'; setTimeout(() => toast.remove(), 300); }, 2500);
   }
 
+  // Returns the group/task id that should be the parent for a new item.
+  // If parentId is explicitly provided, use it.
+  // Otherwise, if a task is selected: for groups add at root; for task/milestone
+  // add inside the selected task's parent group (or the task itself if it's a group).
+  function resolveParentId(type, explicitParentId) {
+    if (explicitParentId !== undefined) return explicitParentId;
+    if (type === 'group') return 0; // groups always at root
+    const selId = state.selectedTaskId;
+    if (!selId || !gantt.isTaskExists(selId)) return 0;
+    const sel = gantt.getTask(selId);
+    // If selected is a project/group, add inside it
+    if (sel.type === gantt.config.types.project) return selId;
+    // Otherwise add inside the selected task's parent
+    const parentId = sel.parent;
+    if (parentId && parentId !== 0 && parentId !== '0' && gantt.isTaskExists(parentId)) {
+      return parentId;
+    }
+    return 0;
+  }
+
   function addItemOfType(type, parentId) {
     // Guard: must have a project open
     if (!state.project) {
@@ -1062,11 +1101,78 @@
       status: 'planned',
       assignee: '',
       notes: '',
-      parent: parentId || 0,
+      parent: resolveParentId(type, parentId),
       open: true
     };
 
     openTaskEditor(null, newTask, true);
+  }
+
+  // ============================================================
+  // COLUMN RESIZE (custom, since DHTMLX GPL doesn't expose it)
+  // ============================================================
+
+  function initColumnResize() {
+    const HANDLE_W = 6; // px from right edge of header cell = drag zone
+    const MIN_W    = 36;
+
+    let dragState = null;
+
+    function attachHandles() {
+      const heads = document.querySelectorAll('.gantt_grid_head_cell');
+      heads.forEach((cell, idx) => {
+        // Avoid double-binding
+        if (cell.__colResizeAttached) return;
+        cell.__colResizeAttached = true;
+
+        cell.addEventListener('mousemove', (e) => {
+          const rect = cell.getBoundingClientRect();
+          const fromRight = rect.right - e.clientX;
+          cell.style.cursor = fromRight <= HANDLE_W ? 'col-resize' : '';
+        });
+        cell.addEventListener('mouseleave', () => {
+          if (!dragState) cell.style.cursor = '';
+        });
+        cell.addEventListener('mousedown', (e) => {
+          const rect = cell.getBoundingClientRect();
+          const fromRight = rect.right - e.clientX;
+          if (fromRight > HANDLE_W) return;
+          e.preventDefault();
+          e.stopPropagation();
+          dragState = { colIdx: idx, startX: e.clientX, startW: gantt.config.columns[idx]?.width || 100 };
+          document.body.style.cursor = 'col-resize';
+          document.body.style.userSelect = 'none';
+        });
+      });
+    }
+
+    document.addEventListener('mousemove', (e) => {
+      if (!dragState) return;
+      const delta = e.clientX - dragState.startX;
+      const newW  = Math.max(MIN_W, dragState.startW + delta);
+      const col   = gantt.config.columns[dragState.colIdx];
+      if (!col || newW === col.width) return;
+      // Store the delta vs original to adjust grid_width by the same amount,
+      // leaving every OTHER column width untouched.
+      const widthDelta = newW - col.width;
+      col.width = newW;
+      gantt.config.grid_width = (gantt.config.grid_width || 530) + widthDelta;
+      gantt.render();
+      requestAnimationFrame(attachHandles);
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!dragState) return;
+      dragState = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    });
+
+    // Initial attach + re-attach after every render
+    gantt.attachEvent('onGanttRender', () => {
+      requestAnimationFrame(attachHandles);
+    });
+    requestAnimationFrame(attachHandles);
   }
 
   // ============================================================
@@ -1624,6 +1730,7 @@
   document.addEventListener('DOMContentLoaded', function () {
     initGantt();
     bindUI();
+    initColumnResize();
     setScale('week');
     showWelcome();
 
