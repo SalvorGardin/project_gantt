@@ -98,7 +98,7 @@ function session() {
       elements.set(id, { value: '', style: {}, textContent: '', disabled: false,
         classList: { add: c => classes.add(c), remove: c => classes.delete(c), contains: c => classes.has(c),
           toggle: (c, on) => on ? classes.add(c) : classes.delete(c) },
-        remove() {}, select() {}, addEventListener() {} });
+        remove() {}, select() {}, focus() {}, querySelectorAll: () => [], addEventListener() {} });
     }
     return elements.get(id);
   };

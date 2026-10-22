@@ -357,10 +357,12 @@
     // Track selected task (for toolbar + Задача / + Веха context)
     gantt.attachEvent('onTaskClick', function (id) {
       state.selectedTaskId = id;
+      updateStatusBar();
       return true;
     });
     gantt.attachEvent('onEmptyClick', function () {
       state.selectedTaskId = null;
+      updateStatusBar();
     });
 
     // Track first-time link creation to show hint
@@ -507,7 +509,7 @@
   // ============================================================
 
   function specToGantt(items, links) {
-    const tasks = items.map(item => {
+    const tasks = [...items].sort((a, b) => a.sort_order - b.sort_order).map(item => {
       // Strip any leading emoji from title to avoid duplication
       const cleanTitle = item.title.replace(/^[\p{Emoji_Presentation}\p{Extended_Pictographic}️⃣‍\s]+/u, '').trim() || item.title;
       const t = {
@@ -711,7 +713,7 @@
           document.getElementById('import-links').textContent = data.links.length;
           state.pendingImport = data;
           document.getElementById('btn-confirm-import').disabled = false;
-          document.getElementById('import-modal-overlay').classList.remove('hidden');
+          openModal('import-modal-overlay', 'btn-cancel-import');
         } else {
           replaceProject(data, () => showToast('Проект загружен', 'success'));
         }
@@ -750,9 +752,9 @@
       document.body.appendChild(link);
       try { link.click(); } finally { link.remove(); }
       if (!recoveryProject) markClean();
-      showToast('Скачивание JSON начато', 'success');
+      showToast('Скачивание JSON начато. Проверьте файл в загрузках браузера.', 'success');
     } catch (error) {
-      showToast('Не удалось сохранить проект: ' + error.message, 'error');
+      showToast('Не удалось начать скачивание JSON: ' + error.message, 'error');
     }
   }
 
@@ -763,7 +765,6 @@
   let newTaskBuffer = null;
 
   function openTaskEditor(id, newTask, isNew) {
-    const overlay = document.getElementById('modal-overlay');
     let task;
     if (isNew && newTask) {
       newTaskBuffer = newTask;
@@ -839,8 +840,7 @@
     document.getElementById('edit-assignee').value = task.assignee || '';
     document.getElementById('edit-notes').value = task.notes || '';
 
-    overlay.classList.remove('hidden');
-    setTimeout(() => titleEl.focus(), 100);
+    openModal('modal-overlay', 'edit-title');
   }
 
   function saveTaskEdit() {
@@ -921,7 +921,7 @@
 
     markDirty();
     closeModal('modal-overlay');
-    showToast('Сохранено', 'success');
+    showToast('Изменения применены к плану', 'success');
   }
 
   function deleteTask(id) {
@@ -945,7 +945,7 @@
     if (!link) return;
     state.editingLinkId = id;
     document.getElementById('link-type').value = link.type || 0;
-    document.getElementById('link-modal-overlay').classList.remove('hidden');
+    openModal('link-modal-overlay', 'link-type');
   }
 
   function saveLinkEdit() {
@@ -995,19 +995,47 @@
   function openConfirm(text, onConfirm) {
     document.getElementById('confirm-text').textContent = text;
     state.pendingDelete = onConfirm;
-    document.getElementById('confirm-modal-overlay').classList.remove('hidden');
+    openModal('confirm-modal-overlay', 'btn-cancel-confirm');
   }
 
   // ============================================================
   // MODALS
   // ============================================================
 
+  const modalStack = [];
+  function modalControls(el) {
+    return [...el.querySelectorAll('button, input, select, textarea, a[href], [tabindex]')]
+      .filter(control => !control.disabled && control.tabIndex >= 0 && control.getClientRects().length);
+  }
+
+  function openModal(id, focusId) {
+    const el = document.getElementById(id);
+    if (!modalStack.some(entry => entry.el === el)) {
+      modalStack.push({ el, opener: document.activeElement });
+    }
+    el.classList.remove('hidden');
+    (document.getElementById(focusId) || modalControls(el)[0] || el).focus();
+  }
+
   function closeModal(id) {
     if (id === 'import-modal-overlay') state.pendingImport = null;
     if (id === 'confirm-modal-overlay') state.pendingDelete = null;
     const el = document.getElementById(id);
+    const index = modalStack.findIndex(entry => entry.el === el);
+    const wasTop = index >= 0 && index === modalStack.length - 1;
+    const entry = index >= 0 ? modalStack.splice(index, 1)[0] : null;
     if (el) el.classList.add('hidden');
     document.getElementById('emoji-picker')?.classList.add('hidden');
+    if (wasTop) {
+      const top = modalStack.at(-1)?.el;
+      const opener = entry.opener;
+      if (opener && opener !== document.body && !opener.disabled && opener.isConnected && opener.getClientRects().length
+          && (!top || top.contains(opener))) {
+        opener.focus();
+      } else {
+        (top ? modalControls(top)[0] || top : document.getElementById('gantt-container')).focus();
+      }
+    }
   }
 
   // ============================================================
@@ -1032,6 +1060,11 @@
     let taskCount = 0;
     try { gantt.eachTask(() => taskCount++); } catch (e) {}
     document.getElementById('status-tasks').textContent = `${taskCount} элементов`;
+    const selected = state.selectedTaskId && gantt.isTaskExists(state.selectedTaskId)
+      ? gantt.getTask(state.selectedTaskId) : null;
+    if (!selected) state.selectedTaskId = null;
+    document.getElementById('status-selected').textContent = selected
+      ? `Выбрано: ${selected.raw_title || selected.text}` : 'Ничего не выбрано';
   }
 
   // ============================================================
@@ -1399,15 +1432,17 @@
       emojiPicker.querySelector('.emoji-grid').innerHTML = '';
       emojis.forEach(em => {
         if (!em) return;
-        const span = document.createElement('span');
-        span.className = 'emoji-picker-item';
-        span.textContent = em;
-        span.title = em;
-        span.addEventListener('click', () => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'emoji-picker-item';
+        button.textContent = em;
+        button.title = em;
+        button.addEventListener('click', () => {
           emojiTrigger.textContent = em;
           emojiPicker.classList.add('hidden');
+          emojiTrigger.focus();
         });
-        emojiPicker.querySelector('.emoji-grid').appendChild(span);
+        emojiPicker.querySelector('.emoji-grid').appendChild(button);
       });
       document.addEventListener('click', () => emojiPicker.classList.add('hidden'));
     }
@@ -1484,16 +1519,33 @@
     document.addEventListener('click', (e) => {
       if (!e.target.closest('#context-menu')) hideContextMenu();
     });
+    document.addEventListener('focusin', (e) => {
+      const top = modalStack.at(-1)?.el;
+      if (top && !top.contains(e.target)) (modalControls(top)[0] || top).focus();
+    });
     document.addEventListener('keydown', (e) => {
+      const top = modalStack.at(-1)?.el;
+      if (e.key === 'Tab' && top) {
+        const controls = modalControls(top);
+        const first = controls[0] || top;
+        const last = controls.at(-1) || top;
+        if (e.shiftKey ? document.activeElement === first || !controls.includes(document.activeElement)
+          : document.activeElement === last || !controls.includes(document.activeElement)) {
+          e.preventDefault();
+          (e.shiftKey ? last : first).focus();
+        }
+      }
       if (e.key === 'Escape') {
-        const wasNewProject = !document.getElementById('new-project-modal-overlay').classList.contains('hidden');
-        closeModal('modal-overlay');
-        closeModal('link-modal-overlay');
-        closeModal('import-modal-overlay');
-        closeModal('confirm-modal-overlay');
-        closeModal('new-project-modal-overlay');
+        e.preventDefault();
+        const picker = document.getElementById('emoji-picker');
+        if (top?.id === 'modal-overlay' && !picker.classList.contains('hidden')) {
+          picker.classList.add('hidden');
+          document.getElementById('emoji-trigger').focus();
+        } else if (top) {
+          closeModal(top.id);
+          if (top.id === 'new-project-modal-overlay' && !state.project) showWelcome();
+        }
         hideContextMenu();
-        if (wasNewProject && !state.project) showWelcome();
       }
     });
 
@@ -1519,6 +1571,8 @@
     document.getElementById('status-saved').classList.add('hidden');
     state.isDirty = false;
     state.project = null;
+    state.selectedTaskId = null;
+    updateStatusBar();
 
     // Show welcome overlay inside gantt container
     const container = document.getElementById('gantt-container');
@@ -1580,8 +1634,8 @@
   function openNewProjectModal() {
     document.getElementById('new-project-name').value = 'Новый проект';
     document.getElementById('new-project-desc').value = '';
-    document.getElementById('new-project-modal-overlay').classList.remove('hidden');
-    setTimeout(() => document.getElementById('new-project-name').select(), 100);
+    openModal('new-project-modal-overlay', 'new-project-name');
+    document.getElementById('new-project-name').select();
   }
 
   function createNewProject() {

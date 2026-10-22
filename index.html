@@ -140,16 +140,16 @@
   <span id="status-selected">Ничего не выбрано</span>
   <span class="status-sep">·</span>
   <span id="status-unsaved" class="status-unsaved hidden">● Несохранённые изменения</span>
-  <span id="status-saved" class="status-saved">Сохранено</span>
+  <span id="status-saved" class="status-saved" title="Нет изменений после загрузки или последнего запуска скачивания JSON. Это не подтверждение записи файла на диск.">Нет новых изменений</span>
 </div>
 
 <!-- ===== MAIN AREA ===== -->
 <main class="app-main">
-  <div id="gantt-container" class="gantt-container" data-testid="gantt-container"></div>
+  <div id="gantt-container" tabindex="-1" class="gantt-container" data-testid="gantt-container" tabindex="-1"></div>
 </main>
 
 <!-- ===== TASK EDITOR MODAL ===== -->
-<div class="modal-overlay hidden" id="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+<div class="modal-overlay hidden" tabindex="-1" id="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
   <div class="modal" id="task-modal">
     <div class="modal__header">
       <h2 class="modal__title" id="modal-title">Редактировать задачу</h2>
@@ -217,14 +217,14 @@
           <div class="color-row">
             <input class="color-input" id="edit-color" type="color" value="#3b82f6" data-testid="input-task-color" />
             <div class="color-presets">
-              <button class="color-preset" style="background:#3b82f6" data-color="#3b82f6" data-testid="color-preset-blue"></button>
-              <button class="color-preset" style="background:#10b981" data-color="#10b981" data-testid="color-preset-green"></button>
-              <button class="color-preset" style="background:#f59e0b" data-color="#f59e0b" data-testid="color-preset-amber"></button>
-              <button class="color-preset" style="background:#ef4444" data-color="#ef4444" data-testid="color-preset-red"></button>
-              <button class="color-preset" style="background:#8b5cf6" data-color="#8b5cf6" data-testid="color-preset-purple"></button>
-              <button class="color-preset" style="background:#06b6d4" data-color="#06b6d4" data-testid="color-preset-cyan"></button>
-              <button class="color-preset" style="background:#ec4899" data-color="#ec4899" data-testid="color-preset-pink"></button>
-              <button class="color-preset" style="background:#64748b" data-color="#64748b" data-testid="color-preset-slate"></button>
+              <button class="color-preset" style="background:#3b82f6" data-color="#3b82f6" data-testid="color-preset-blue" aria-label="Синий цвет"></button>
+              <button class="color-preset" style="background:#10b981" data-color="#10b981" data-testid="color-preset-green" aria-label="Зелёный цвет"></button>
+              <button class="color-preset" style="background:#f59e0b" data-color="#f59e0b" data-testid="color-preset-amber" aria-label="Янтарный цвет"></button>
+              <button class="color-preset" style="background:#ef4444" data-color="#ef4444" data-testid="color-preset-red" aria-label="Красный цвет"></button>
+              <button class="color-preset" style="background:#8b5cf6" data-color="#8b5cf6" data-testid="color-preset-purple" aria-label="Фиолетовый цвет"></button>
+              <button class="color-preset" style="background:#06b6d4" data-color="#06b6d4" data-testid="color-preset-cyan" aria-label="Бирюзовый цвет"></button>
+              <button class="color-preset" style="background:#ec4899" data-color="#ec4899" data-testid="color-preset-pink" aria-label="Розовый цвет"></button>
+              <button class="color-preset" style="background:#64748b" data-color="#64748b" data-testid="color-preset-slate" aria-label="Серый цвет"></button>
             </div>
           </div>
         </div>
@@ -259,7 +259,7 @@
 </div>
 
 <!-- ===== LINK MODAL ===== -->
-<div class="modal-overlay hidden" id="link-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="link-modal-title">
+<div class="modal-overlay hidden" tabindex="-1" id="link-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="link-modal-title">
   <div class="modal modal--sm" id="link-modal">
     <div class="modal__header">
       <h2 class="modal__title" id="link-modal-title">Зависимость</h2>
@@ -289,7 +289,7 @@
 </div>
 
 <!-- ===== IMPORT MODAL ===== -->
-<div class="modal-overlay hidden" id="import-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
+<div class="modal-overlay hidden" tabindex="-1" id="import-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
   <div class="modal modal--sm" id="import-modal">
     <div class="modal__header">
       <h2 class="modal__title" id="import-modal-title">Загрузить проект</h2>
@@ -328,7 +328,7 @@
 </div>
 
 <!-- ===== CONFIRM DELETE MODAL ===== -->
-<div class="modal-overlay hidden" id="confirm-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+<div class="modal-overlay hidden" tabindex="-1" id="confirm-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
   <div class="modal modal--xs">
     <div class="modal__header">
       <h2 class="modal__title" id="confirm-title">Подтвердить удаление</h2>
@@ -368,7 +368,7 @@
 
 
 <!-- ===== NEW PROJECT MODAL ===== -->
-<div class="modal-overlay hidden" id="new-project-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="new-project-title">
+<div class="modal-overlay hidden" tabindex="-1" id="new-project-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="new-project-title">
   <div class="modal modal--sm" id="new-project-modal">
     <div class="modal__header">
       <h2 class="modal__title" id="new-project-title">Новый проект</h2>

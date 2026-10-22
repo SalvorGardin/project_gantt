@@ -107,6 +107,26 @@ const { chromium } = require('playwright');
     await input(first, '#welcome-file-input');
     await page.waitForSelector('#welcome-overlay', { state: 'hidden' });
     assert.deepEqual((await download()).links, first.links);
+    // External files may put children before parents and mix sibling order.
+    const orderedPlan = { schema_version: 1, project: { id: 'order', name: 'Порядок' }, links: [],
+      items: [
+        ['late', 'group', 20], ['nested-b', 'early', 2], ['second', null, 2],
+        ['tie-a', 'group', 5], ['missing-a', 'group'], ['group', null, 1],
+        ['early', 'group', 1], ['nested-a', 'early', 1], ['tie-b', 'group', 5], ['missing-b', 'group']
+      ].map(([id, parent_id, sort_order]) => ({ id, parent_id, sort_order, type: id === 'group' ? 'group' : 'task',
+        title: id, start_date: '2026-10-22', end_date: '2026-10-23' })) };
+    const expectedOrder = ['group', 'missing-a', 'missing-b', 'early', 'nested-a', 'nested-b', 'tie-a', 'tie-b', 'late', 'second'];
+    await input(orderedPlan); await page.click('#btn-confirm-import');
+    const ordered = await download();
+    assert.deepEqual(ordered.items.map(t => t.id), expectedOrder);
+    assert.ok(ordered.items.every(t => t.start_date === '2026-10-22' && t.end_date === '2026-10-23'));
+    await page.reload();
+    await page.waitForSelector('#welcome-file-input', { state: 'attached' });
+    await input(orderedPlan, '#welcome-file-input');
+    await page.waitForSelector('#welcome-overlay', { state: 'hidden' });
+    assert.deepEqual((await download()).items, ordered.items);
+    await input(ordered); await page.click('#btn-confirm-import');
+    assert.deepEqual((await download()).items, ordered.items);
     assert.deepEqual(errors, []);
     console.log('PASS: real DHTMLX import, invalid input, discard/cancel, rollback, dirty, save/load twice, reorder, safe text, welcome import.');
   } finally { await browser.close(); }
