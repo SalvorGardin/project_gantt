@@ -98,6 +98,16 @@
   // DHTMLX GANTT CONFIGURATION
   // ============================================================
 
+  let applyingProject = false;
+  let importReadVersion = 0;
+  let recoveryProject = null;
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[ch]);
+  }
+
   function initGantt() {
     gantt.config.xml_date = '%Y-%m-%d';
     gantt.config.date_format = '%Y-%m-%d';
@@ -117,7 +127,7 @@
     gantt.config.order_branch_free = true; // allow reordering across branches
 
     gantt.config.show_progress = true;
-    gantt.config.fit_tasks = false;
+    gantt.config.fit_tasks = true;
     gantt.config.auto_scheduling = false;
 
     gantt.config.link_line_width = 2;
@@ -155,9 +165,9 @@
         width: 200,
         resize: true,
         template: function (task) {
-          const emoji = task.emoji || '';
+          const emoji = escapeHtml(task.emoji);
           const statusDot = getStatusDot(task.status);
-          return `<span class="task-cell-text">${emoji ? emoji + ' ' : ''}${task.text}</span>${statusDot}`;
+          return `<span class="task-cell-text">${emoji ? emoji + ' ' : ''}${escapeHtml(task.text)}</span>${statusDot}`;
         }
       },
       {
@@ -219,20 +229,23 @@
     gantt.config.tooltip_offset_y = 20;
     gantt.templates.tooltip_text = function (start, end, task) {
       const fmt = gantt.date.date_to_str('%d.%m.%Y');
-      const assignee = task.assignee ? `<br><b>Ответственный:</b> ${task.assignee}` : '';
+      const assignee = task.assignee ? `<br><b>Ответственный:</b> ${escapeHtml(task.assignee)}` : '';
       const progress = task.type !== 'milestone' ? `<br><b>Прогресс:</b> ${Math.round((task.progress || 0) * 100)}%` : '';
-      const status = task.status ? `<br><b>Статус:</b> ${getStatusLabel(task.status)}` : '';
-      const notes = task.notes ? `<br><span style="color:#8b949e">${task.notes}</span>` : '';
+      const status = task.status ? `<br><b>Статус:</b> ${escapeHtml(getStatusLabel(task.status))}` : '';
+      const notes = task.notes ? `<br><span style="color:#8b949e">${escapeHtml(task.notes)}</span>` : '';
+      // Display the inclusive last day without changing DHTMLX's exclusive end.
+      const endForTooltip = new Date(end);
+      endForTooltip.setDate(endForTooltip.getDate() - 1);
       const dates = task.type === 'milestone'
         ? `<br><b>Дата:</b> ${fmt(start)}`
-        : `<br><b>Период:</b> ${fmt(start)} — ${fmt(end)}`;
-      return `<b>${task.text}</b>${dates}${assignee}${progress}${status}${notes}`;
+        : `<br><b>Период:</b> ${fmt(start)} — ${fmt(endForTooltip)}`;
+      return `<b>${escapeHtml(task.text)}</b>${dates}${assignee}${progress}${status}${notes}`;
     };
 
     // Task templates
     gantt.templates.task_text = function (start, end, task) {
       if (task.type === 'milestone') return '';
-      return task.text || '';
+      return escapeHtml(task.text);
     };
 
     gantt.templates.task_row_class = function (start, end, task) {
@@ -244,8 +257,8 @@
     };
 
     gantt.templates.rightside_text = function (start, end, task) {
-      if (task.type === 'milestone') return task.text || '';
-      if (task.assignee) return `<span style="font-size:11px;color:#8b949e;padding-left:6px">${task.assignee}</span>`;
+      if (task.type === 'milestone') return escapeHtml(task.text);
+      if (task.assignee) return `<span style="font-size:11px;color:#8b949e;padding-left:6px">${escapeHtml(task.assignee)}</span>`;
       return '';
     };
 
@@ -355,12 +368,14 @@
 
     // Force FS type on every drag-created link BEFORE it is stored
     gantt.attachEvent('onBeforeLinkAdd', function (id, link) {
-      link.type = gantt.config.links.finish_to_start; // always FS
+      if (applyingProject) return true;
+      link.type = gantt.config.links.finish_to_start; // new drag-created links only
       return true;
     });
 
     // Link created → validate + mark dirty
     gantt.attachEvent('onAfterLinkAdd', function (id, link) {
+      if (applyingProject) return;
       if (detectCycle(link.source, link.target)) {
         gantt.deleteLink(id);
         showToast('Циклическая зависимость невозможна', 'error');
@@ -378,6 +393,27 @@
     // After task open/collapse
     gantt.attachEvent('onTaskOpened', function () { markDirty(); });
     gantt.attachEvent('onTaskClosed', function () { markDirty(); });
+
+    let previousParent;
+    function rememberParent(id) {
+      previousParent = gantt.getTask(id).parent;
+      return true;
+    }
+    function recalcMovedTask(id) {
+      recalcParentDates(previousParent, true);
+      recalcParentDates(id);
+      markDirty();
+    }
+    gantt.attachEvent('onBeforeTaskMove', rememberParent);
+    gantt.attachEvent('onAfterTaskMove', recalcMovedTask);
+    // Marker-mode row dragging has its own events.
+    gantt.attachEvent('onRowDragStart', rememberParent);
+    gantt.attachEvent('onRowDragEnd', recalcMovedTask);
+    gantt.attachEvent('onAfterTaskDelete', function (id, task) {
+      recalcParentDates(task.parent, true);
+      markDirty();
+    });
+    gantt.attachEvent('onAfterLinkDelete', markDirty);
 
     // Initialize
     gantt.init('gantt-container');
@@ -477,7 +513,7 @@
       const t = {
         id: item.id,
         text: cleanTitle,
-        raw_title: cleanTitle,
+        raw_title: item.title,
         start_date: item.start_date,
         end_date: item.end_date || item.start_date,
         parent: item.parent_id || 0,
@@ -516,7 +552,7 @@
     return { data: tasks, links: ganttLinks };
   }
 
-  function ganttToSpec(project) {
+  function ganttToSpec() {
     const result = { items: [], links: [] };
     const typeMap = {
       [gantt.config.types.project]: 'group',
@@ -525,7 +561,10 @@
     };
     const fmt = gantt.date.date_to_str('%Y-%m-%d');
 
+    const siblingOrder = new Map();
     gantt.eachTask(function (task) {
+      const parentKey = String(task.parent || 0);
+      siblingOrder.set(parentKey, (siblingOrder.get(parentKey) || 0) + 1);
       const title = task.raw_title || task.text.replace(/^[\p{Emoji}\s]+/u, '').trim() || task.text;
       const item = {
         id: task.id,
@@ -539,7 +578,7 @@
         emoji: task.emoji || '',
         progress: Math.round((task.progress || 0) * 100),
         status: task.status || 'planned',
-        sort_order: task.sort_order || 0,
+        sort_order: siblingOrder.get(parentKey),
         is_expanded: task.$open !== false,
         notes: task.notes || ''
       };
@@ -571,21 +610,117 @@
   // LOAD PROJECT
   // ============================================================
 
-  function loadProject(data) {
-    state.project = data;
-    document.getElementById('project-name').value = data.project.name || '';
-    const ganttData = specToGantt(data.items || [], data.links || []);
-    gantt.clearAll();
-    gantt.parse(ganttData, 'json');
-    updateStatusBar();
-    markClean();
+  function loadProject(input) {
+    const data = ProjectFile.prepare(input);
+    const ganttData = specToGantt(data.items, data.links);
+    const previous = JSON.parse(JSON.stringify(gantt.serialize()));
+    const oldState = { ...state };
+    const oldName = document.getElementById('project-name').value;
+    const oldScroll = gantt.getScrollState();
+    const backup = recoveryProject || (state.project ? {
+      schema_version: SCHEMA_VERSION,
+      project: { ...state.project.project, name: oldName },
+      ...ganttToSpec()
+    } : null);
+    applyingProject = true;
+    try {
+      gantt.clearAll();
+      gantt.parse(ganttData, 'json');
+      state.project = data;
+      state.selectedTaskId = null;
+      state.editingTaskId = null;
+      state.editingLinkId = null;
+      state.contextTaskId = null;
+      document.getElementById('project-name').value = data.project.name;
+      updateStatusBar();
+      markClean();
+      hideWelcome();
+      recoveryProject = null;
+      importReadVersion++;
+    } catch (error) {
+      Object.assign(state, oldState);
+      document.getElementById('project-name').value = oldName;
+      try {
+        gantt.clearAll();
+        gantt.parse(previous, 'json');
+        if (oldState.selectedTaskId && gantt.isTaskExists(oldState.selectedTaskId)) {
+          gantt.selectTask(oldState.selectedTaskId);
+        }
+        gantt.scrollTo(oldScroll.x, oldScroll.y);
+        updateStatusBar();
+      } catch (restoreError) {
+        // Keep a downloadable copy even if the chart itself can no longer render.
+        recoveryProject = backup;
+        state.isDirty = !!backup;
+        throw new Error(backup
+          ? 'Не удалось восстановить диаграмму. Нажмите «Сохранить», чтобы скачать предыдущий план. ' + restoreError.message
+          : 'Не удалось восстановить пустую диаграмму. Обновите страницу. ' + restoreError.message);
+      } finally {
+        document.getElementById('status-unsaved').classList.toggle('hidden', !state.isDirty);
+        document.getElementById('status-saved').classList.toggle('hidden', state.isDirty || !state.project);
+      }
+      throw error;
+    } finally {
+      applyingProject = false;
+    }
     scrollToToday();
-    // Show link creation hint briefly after load if there are tasks
     setTimeout(() => {
-      let count = 0;
-      try { gantt.eachTask(() => count++); } catch(e) {}
-      if (count > 1) showLinkHint();
+      if (state.project === data && data.items.length > 1) showLinkHint();
     }, 1500);
+  }
+
+  function replaceProject(data, onSuccess) {
+    const apply = () => {
+      try {
+        loadProject(data);
+        onSuccess();
+      } catch (error) {
+        showToast('Проект не загружен: ' + error.message, 'error');
+      }
+    };
+    if (state.isDirty) {
+      openConfirm('Заменить текущий проект? Несохранённые изменения будут потеряны.', apply);
+    } else {
+      apply();
+    }
+  }
+
+  function readProjectFile(event, preview) {
+    const input = event.target;
+    const file = input.files[0];
+    if (!file) return;
+    const version = ++importReadVersion;
+    state.pendingImport = null;
+    closeModal('import-modal-overlay');
+    document.getElementById('btn-confirm-import').disabled = true;
+    const reader = new FileReader();
+    const failed = message => {
+      if (version === importReadVersion) showToast('Ошибка чтения файла: ' + message, 'error');
+    };
+    reader.onerror = () => failed('не удалось прочитать файл');
+    reader.onabort = () => failed('чтение прервано');
+    reader.onload = () => {
+      if (version !== importReadVersion) return;
+      try {
+        const data = ProjectFile.prepare(JSON.parse(reader.result));
+        if (preview) {
+          document.getElementById('import-warning').style.display = 'none';
+          document.getElementById('import-name').textContent = data.project.name || '—';
+          document.getElementById('import-schema').textContent = data.schema_version;
+          document.getElementById('import-count').textContent = data.items.length;
+          document.getElementById('import-links').textContent = data.links.length;
+          state.pendingImport = data;
+          document.getElementById('btn-confirm-import').disabled = false;
+          document.getElementById('import-modal-overlay').classList.remove('hidden');
+        } else {
+          replaceProject(data, () => showToast('Проект загружен', 'success'));
+        }
+      } catch (error) {
+        failed(error.message);
+      }
+    };
+    reader.readAsText(file);
+    input.value = '';
   }
 
   // ============================================================
@@ -593,46 +728,32 @@
   // ============================================================
 
   function saveProject() {
-    const projectName = document.getElementById('project-name').value.trim() || 'Проект';
-    const spec = ganttToSpec();
-    const blob = {
-      schema_version: SCHEMA_VERSION,
-      project: {
-        id: state.project?.project?.id || ('proj_' + Date.now()),
-        name: projectName,
-        description: state.project?.project?.description || '',
-        created_at: state.project?.project?.created_at || new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      },
-      items: spec.items,
-      links: spec.links
-    };
-
-    const json = JSON.stringify(blob, null, 2);
-    const link = document.createElement('a');
-    link.download = (projectName.replace(/[^а-яёa-z0-9_\-\s]/gi, '').trim() || 'project') + '_gantt.json';
-    link.href = 'data:application/json;charset=utf-8,' + encodeURIComponent(json);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    markClean();
-    showToast('Проект сохранён', 'success');
-  }
-
-  // ============================================================
-  // VALIDATE IMPORT
-  // ============================================================
-
-  function validateImport(data) {
-    if (!data || typeof data !== 'object') return 'Некорректный JSON файл';
-    if (!data.schema_version) return 'Отсутствует поле schema_version';
-    if (data.schema_version > SCHEMA_VERSION) return `Версия схемы ${data.schema_version} не поддерживается (максимум: ${SCHEMA_VERSION})`;
-    if (!data.project || !data.project.id) return 'Отсутствует объект project';
-    if (!Array.isArray(data.items)) return 'Отсутствует массив items';
-    for (const item of data.items) {
-      if (!item.id || !item.title) return `Элемент без id или title: ${JSON.stringify(item)}`;
+    if (!state.project && !recoveryProject) {
+      showToast('Сначала создайте или загрузите проект', 'info');
+      return;
     }
-    return null;
+    try {
+      const projectName = document.getElementById('project-name').value.trim() || 'Проект';
+      const data = ProjectFile.prepare(recoveryProject || {
+        schema_version: SCHEMA_VERSION,
+        project: {
+          ...state.project.project,
+          name: projectName,
+          created_at: state.project.project.created_at || new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        ...ganttToSpec()
+      });
+      const link = document.createElement('a');
+      link.download = (data.project.name.replace(/[^а-яёa-z0-9_\-\s]/gi, '').trim() || 'project') + '_gantt.json';
+      link.href = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(data, null, 2));
+      document.body.appendChild(link);
+      try { link.click(); } finally { link.remove(); }
+      if (!recoveryProject) markClean();
+      showToast('Скачивание JSON начато', 'success');
+    } catch (error) {
+      showToast('Не удалось сохранить проект: ' + error.message, 'error');
+    }
   }
 
   // ============================================================
@@ -882,6 +1003,8 @@
   // ============================================================
 
   function closeModal(id) {
+    if (id === 'import-modal-overlay') state.pendingImport = null;
+    if (id === 'confirm-modal-overlay') state.pendingDelete = null;
     const el = document.getElementById(id);
     if (el) el.classList.add('hidden');
     document.getElementById('emoji-picker')?.classList.add('hidden');
@@ -892,6 +1015,7 @@
   // ============================================================
 
   function markDirty() {
+    if (applyingProject || !state.project) return;
     state.isDirty = true;
     document.getElementById('status-unsaved').classList.remove('hidden');
     document.getElementById('status-saved').classList.add('hidden');
@@ -929,40 +1053,31 @@
   // ============================================================
   // GROUP DATE RECALCULATION
   // ============================================================
-  // Walks up the parent chain and updates each group's start/end
-  // to span all its direct and indirect children.
-  function recalcParentDates(taskId) {
+  let recalculatingParents = false;
+  function recalcParentDates(taskId, includeSelf = false) {
+    if (applyingProject || recalculatingParents || !gantt.isTaskExists(taskId)) return;
+    recalculatingParents = true;
     try {
-      const task = gantt.isTaskExists(taskId) ? gantt.getTask(taskId) : null;
-      if (!task) return;
-      const parentId = task.parent;
-      if (!parentId || parentId === 0 || parentId === '0') return;
-      if (!gantt.isTaskExists(parentId)) return;
-
-      const parent = gantt.getTask(parentId);
-      // Recalc any parent that has children (project groups AND sub-task groups)
-      // Check if this parent actually has children before updating
-      let hasChildren = false;
-      gantt.eachTask(function () { hasChildren = true; }, parentId);
-      if (!hasChildren) return;
-
-      let minStart = null;
-      let maxEnd   = null;
-
-      gantt.eachTask(function (child) {
-        if (!child.start_date || !child.end_date) return;
-        if (!minStart || child.start_date < minStart) minStart = child.start_date;
-        if (!maxEnd   || child.end_date   > maxEnd)   maxEnd   = child.end_date;
-      }, parentId);
-
-      if (minStart && maxEnd) {
-        parent.start_date = minStart;
-        parent.end_date   = maxEnd;
-        gantt.updateTask(parentId);
-        // Recurse to grandparent
-        recalcParentDates(parentId);
+      let parentId = includeSelf ? taskId : gantt.getTask(taskId).parent;
+      while (parentId && parentId !== '0' && gantt.isTaskExists(parentId)) {
+        const parent = gantt.getTask(parentId);
+        const children = gantt.getChildren(parentId).map(id => gantt.getTask(id));
+        if (children.length && parent.type !== gantt.config.types.milestone) {
+          const start = new Date(Math.min(...children.map(child => +child.start_date)));
+          const end = new Date(Math.max(...children.map(child => +child.end_date)));
+          const duration = gantt.calculateDuration({ start_date: start, end_date: end, task: parent });
+          if (+parent.start_date !== +start || +parent.end_date !== +end || parent.duration !== duration) {
+            parent.start_date = start;
+            parent.end_date = end;
+            parent.duration = duration;
+            gantt.updateTask(parentId);
+          }
+        }
+        parentId = parent.parent;
       }
-    } catch (e) { /* ignore */ }
+    } finally {
+      recalculatingParents = false;
+    }
   }
 
   // ============================================================
@@ -1003,6 +1118,7 @@
   }
 
   function detectCycle(sourceId, targetId) {
+    sourceId = String(sourceId);
     const visited = new Set();
     function dfs(id) {
       if (id === sourceId) return true;
@@ -1235,62 +1351,16 @@
     document.getElementById('btn-add-task')?.addEventListener('click', () => addItemOfType('task'));
     document.getElementById('btn-add-milestone')?.addEventListener('click', () => addItemOfType('milestone'));
 
-    // New project button in toolbar
-    document.getElementById('btn-new-project')?.addEventListener('click', () => {
-      if (state.isDirty) {
-        openConfirm('Создать новый проект? Несохранённые изменения будут потеряны.', () => {
-          showWelcome();
-          openNewProjectModal();
-        });
-      } else {
-        showWelcome();
-        openNewProjectModal();
-      }
-    });
-
-    // Save
+    document.getElementById('project-name').addEventListener('input', markDirty);
+    document.getElementById('btn-new-project')?.addEventListener('click', openNewProjectModal);
     document.getElementById('btn-save')?.addEventListener('click', saveProject);
+    document.getElementById('file-input')?.addEventListener('change', e => readProjectFile(e, true));
 
-    // Load file
-    document.getElementById('file-input')?.addEventListener('change', function (e) {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = function (evt) {
-        try {
-          const data = JSON.parse(evt.target.result);
-          const err = validateImport(data);
-          const warning = document.getElementById('import-warning');
-          if (err) {
-            warning.textContent = 'Ошибка: ' + err;
-            warning.style.display = '';
-            document.getElementById('btn-confirm-import').disabled = true;
-          } else {
-            warning.style.display = 'none';
-            document.getElementById('btn-confirm-import').disabled = false;
-          }
-          document.getElementById('import-name').textContent = data.project?.name || '—';
-          document.getElementById('import-schema').textContent = data.schema_version || '—';
-          document.getElementById('import-count').textContent = (data.items || []).length;
-          document.getElementById('import-links').textContent = (data.links || []).length;
-          state.pendingImport = err ? null : data;
-          document.getElementById('import-modal-overlay').classList.remove('hidden');
-        } catch (ex) {
-          showToast('Ошибка чтения файла: ' + ex.message, 'error');
-        }
-        e.target.value = '';
-      };
-      reader.readAsText(file);
-    });
-
-    // Import modal
     document.getElementById('btn-confirm-import')?.addEventListener('click', () => {
-      if (state.pendingImport) {
-        loadProject(state.pendingImport);
-        closeModal('import-modal-overlay');
-        showToast('Проект загружен', 'success');
-        state.pendingImport = null;
-      }
+      const data = state.pendingImport;
+      if (!data) return;
+      closeModal('import-modal-overlay');
+      replaceProject(data, () => showToast('Проект загружен', 'success'));
     });
     document.getElementById('btn-cancel-import')?.addEventListener('click', () => closeModal('import-modal-overlay'));
     document.getElementById('import-modal-close')?.addEventListener('click', () => closeModal('import-modal-overlay'));
@@ -1373,8 +1443,9 @@
     // Confirm modal
     document.getElementById('btn-cancel-confirm')?.addEventListener('click', () => closeModal('confirm-modal-overlay'));
     document.getElementById('btn-ok-confirm')?.addEventListener('click', () => {
-      if (state.pendingDelete) { state.pendingDelete(); state.pendingDelete = null; }
+      const action = state.pendingDelete;
       closeModal('confirm-modal-overlay');
+      if (action) action();
     });
 
     // Context menu
@@ -1493,29 +1564,9 @@
         openNewProjectModal();
       });
       overlay.querySelector('#welcome-demo-btn').addEventListener('click', () => {
-        hideWelcome();
-        loadProject(SAMPLE_PROJECT);
-        showToast('Демо-проект загружен', 'success');
+        replaceProject(SAMPLE_PROJECT, () => showToast('Демо-проект загружен', 'success'));
       });
-      overlay.querySelector('#welcome-file-input').addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = function(evt) {
-          try {
-            const data = JSON.parse(evt.target.result);
-            const err = validateImport(data);
-            if (err) { showToast('Ошибка: ' + err, 'error'); return; }
-            hideWelcome();
-            loadProject(data);
-            showToast('Проект загружен', 'success');
-          } catch(ex) {
-            showToast('Ошибка чтения файла: ' + ex.message, 'error');
-          }
-          e.target.value = '';
-        };
-        reader.readAsText(file);
-      });
+      overlay.querySelector('#welcome-file-input').addEventListener('change', e => readProjectFile(e, false));
     } else {
       overlay.classList.remove('hidden');
     }
@@ -1550,10 +1601,11 @@
       items: [],
       links: []
     };
-    closeModal('new-project-modal-overlay');
-    loadProject(blankProject);
-    document.getElementById('project-name').value = name;
-    showToast('Проект «' + name + '» создан', 'success');
+    replaceProject(blankProject, () => {
+      closeModal('new-project-modal-overlay');
+      markDirty();
+      showToast('Проект «' + name + '» создан', 'success');
+    });
   }
 
   // ============================================================
@@ -1577,149 +1629,93 @@
     if (ov) ov.style.display = 'none';
   }
 
+  let exportingImage = false;
+
   async function exportGantt(format) {
+    if (exportingImage) return;
     if (!state.project) {
       showToast('Откройте проект перед экспортом', 'error');
       return;
     }
-
-    // ---- Tile-based export ----
-    // Strategy:
-    //  1. Hide non-gantt UI (toolbar, statusbar, link-hint)
-    //  2. Expand gantt container CSS to show all rows vertically
-    //  3. For each horizontal strip: gantt.scrollTo(tileX), capture with html-to-image
-    //  4. Stitch tiles on OffscreenCanvas
-    //  5. Restore everything
-
-    showExportOverlay();
-
+    if (!['png', 'jpeg'].includes(format)) return;
+    exportingImage = true;
+    let downloadLink = null;
+    let downloadUrl = null;
     try {
-      await new Promise(r => setTimeout(r, 80));
-
-      const container  = document.getElementById('gantt-container');
-      const isDark     = document.documentElement.getAttribute('data-theme') === 'dark';
-      const bgColor    = isDark ? '#161b22' : '#ffffff';
-
-      // ---- Save current scroll ----
+      const name = document.getElementById('project-name').value;
+      const projectName = name.replace(/[^а-яёa-z0-9_\-\s]/gi, '').trim() || 'gantt';
+      const today = new Date();
+      const date = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-');
+      const container = document.getElementById('gantt-container');
       const savedScroll = gantt.getScrollState();
-
-      // ---- Step 1: Hide non-gantt UI elements ----
-      const uiToHide = [
-        ...document.querySelectorAll('.toolbar, .status-bar, #status-bar, .link-hint-bar'),
-      ].filter(Boolean);
-      uiToHide.forEach(el => { el.dataset.exportHidden = el.style.visibility; el.style.visibility = 'hidden'; });
-
-      // ---- Step 2: Expand container vertically to show all rows ----
-      const gridEl    = container.querySelector('.gantt_grid');
-      const chartEl   = container.querySelector('.gantt_task');
-      const dataArea  = container.querySelector('.gantt_data_area');
-      const scaleEl   = container.querySelector('.gantt_task_scale');
-
-      const gridW         = gridEl  ? gridEl.offsetWidth  : 0;
-      const timelineViewW = chartEl ? chartEl.offsetWidth : 0;
-      const timelineFullW = chartEl ? chartEl.scrollWidth : 0;
-      const scaleH        = scaleEl ? scaleEl.offsetHeight : 36;
-      const dataFullH     = dataArea ? dataArea.scrollHeight : 0;
-      const totalW        = gridW + timelineFullW;
-      const totalH        = scaleH + dataFullH;
-
-      // Expand container to show all rows if needed
-      const savedContainerH   = container.style.height;
-      const savedContainerMin = container.style.minHeight;
-      const needsExpand       = container.offsetHeight < totalH;
-      if (needsExpand) {
-        container.style.height    = totalH + 'px';
-        container.style.minHeight = totalH + 'px';
-        gantt.scrollTo(null, 0);
-        await new Promise(r => setTimeout(r, 150));
+      const savedHeight = container.style.height;
+      const savedMinHeight = container.style.minHeight;
+      const savedWidth = container.style.width;
+      const savedMinWidth = container.style.minWidth;
+      const savedGridWidth = gantt.config.grid_width;
+      const savedKeepGridWidth = gantt.config.keep_grid_width;
+      const panels = [...document.querySelectorAll('.toolbar, .status-bar, .link-hint-bar')]
+        .map(element => ({ element, visibility: element.style.visibility }));
+      const backgroundColor = document.documentElement.getAttribute('data-theme') === 'dark' ? '#161b22' : '#ffffff';
+      const painted = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      let blob;
+      showExportOverlay();
+      try {
+        panels.forEach(({ element }) => { element.style.visibility = 'hidden'; });
+        const chart = container.querySelector('.gantt_task');
+        const scale = container.querySelector('.gantt_task_scale');
+        if (!chart || !scale) throw new Error('Диаграмма не готова к экспорту');
+        const totalHeight = scale.offsetHeight + Math.max(1, gantt.getVisibleTaskCount()) * gantt.config.row_height;
+        const timelineX = Math.round(chart.getBoundingClientRect().left - container.getBoundingClientRect().left);
+        const totalWidth = timelineX + scale.scrollWidth;
+        if (totalWidth <= 0 || totalHeight <= 0) throw new Error('Недостаточно места для экспорта диаграммы');
+        const scrollbarHeight = container.offsetHeight - chart.offsetHeight;
+        const scrollbarWidth = container.offsetWidth - timelineX - chart.clientWidth;
+        // html-to-image clones DOM, not scroll offsets. Render the whole chart at scroll=0.
+        // ponytail: one full canvas; use tiled rendering if browser canvas limits become a requirement.
+        gantt.config.keep_grid_width = true;
+        gantt.config.grid_width = container.querySelector('.gantt_grid').offsetWidth;
+        container.style.width = container.style.minWidth = (totalWidth + scrollbarWidth) + 'px';
+        container.style.height = container.style.minHeight = (totalHeight + scrollbarHeight) + 'px';
+        gantt.setSizes();
+        gantt.scrollTo(0, 0);
+        await painted();
+        const canvas = await htmlToImage.toCanvas(container, {
+          backgroundColor, pixelRatio: 1, skipFonts: true, cacheBust: false,
+          width: totalWidth, height: totalHeight
+        });
+        blob = await new Promise((resolve, reject) => canvas.toBlob(
+          result => result ? resolve(result) : reject(new Error('Не удалось закодировать изображение')),
+          format === 'png' ? 'image/png' : 'image/jpeg', 0.92
+        ));
+      } finally {
+        panels.forEach(({ element, visibility }) => { element.style.visibility = visibility; });
+        container.style.height = savedHeight;
+        container.style.minHeight = savedMinHeight;
+        container.style.width = savedWidth;
+        container.style.minWidth = savedMinWidth;
+        gantt.config.grid_width = savedGridWidth;
+        gantt.config.keep_grid_width = savedKeepGridWidth;
+        try { gantt.setSizes(); } finally { gantt.scrollTo(savedScroll.x, savedScroll.y); }
       }
-
-      // ---- Step 3: Build OffscreenCanvas ----
-      const captureH = container.offsetHeight; // may be > totalH if screen is tall enough
-      const finalCanvas = new OffscreenCanvas(totalW, totalH);
-      const ctx = finalCanvas.getContext('2d');
-      ctx.fillStyle = bgColor;
-      ctx.fillRect(0, 0, totalW, totalH);
-
-      // ---- Step 4: Tile capture ----
-      // html-to-image captures the element exactly as rendered.
-      // We capture `container` once per horizontal tile position.
-      // From each capture we extract:
-      //  - tile 0: grid strip (x 0..gridW) + timeline strip (x gridW..gridW+tvW)
-      //  - tile N>0: only timeline strip (x gridW..gridW+tvW)
-
-      const h2iBase = {
-        backgroundColor: bgColor,
-        pixelRatio:      1,
-        skipFonts:       true,
-        cacheBust:       false,
-        filter: (node) => {
-          if (!node.id) return true;
-          return node.id !== 'export-progress-overlay';
-        },
-      };
-
-      // Tile 0: scroll=0, capture grid + first timeline strip
-      gantt.scrollTo(0, 0);
-      await new Promise(r => setTimeout(r, 150));
-      const tile0url = await htmlToImage.toPng(container, { ...h2iBase, width: container.offsetWidth, height: container.offsetHeight });
-      const tile0img = await createImageBitmap(await (await fetch(tile0url)).blob());
-      // Draw grid (once, from tile 0)
-      ctx.drawImage(tile0img, 0, 0, gridW, captureH, 0, 0, gridW, Math.min(captureH, totalH));
-      // Draw first timeline strip
-      const strip0W = Math.min(timelineViewW, timelineFullW);
-      ctx.drawImage(tile0img, gridW, 0, strip0W, captureH, gridW, 0, strip0W, Math.min(captureH, totalH));
-
-      // Subsequent tiles
-      // We scroll 1px BEFORE the actual position (overlap = 1) so that the
-      // tile's left edge is the last pixel of the previous strip (known-good).
-      // We then extract from x=gridW+1 (skipping the gantt container's repeated
-      // left border artifact) and place at destX.
-      const OVERLAP = 1;
-      let destX = gridW + timelineViewW;
-      let srcScrollX = timelineViewW;
-      while (srcScrollX < timelineFullW) {
-        const scrollPos = Math.max(0, srcScrollX - OVERLAP);
-        gantt.scrollTo(scrollPos, 0);
-        await new Promise(r => setTimeout(r, 150));
-
-        const tileUrl = await htmlToImage.toPng(container, { ...h2iBase, width: container.offsetWidth, height: container.offsetHeight });
-        const tileImg = await createImageBitmap(await (await fetch(tileUrl)).blob());
-        // Extract from gridW+OVERLAP to skip the repeated left-border pixel
-        const srcX   = gridW + OVERLAP;
-        const stripW = Math.min(timelineViewW - OVERLAP, timelineFullW - srcScrollX);
-        ctx.drawImage(tileImg, srcX, 0, stripW, captureH, destX, 0, stripW, Math.min(captureH, totalH));
-
-        destX      += stripW;
-        srcScrollX += timelineViewW - OVERLAP;
-      }
-
-      // ---- Step 5: Restore UI ----
-      uiToHide.forEach(el => { el.style.visibility = el.dataset.exportHidden || ''; delete el.dataset.exportHidden; });
-      if (needsExpand) {
-        container.style.height    = savedContainerH;
-        container.style.minHeight = savedContainerMin;
-      }
-      gantt.scrollTo(savedScroll.x, savedScroll.y);
-
-      // ---- Step 6: Download ----
-      const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
-      const blob = await finalCanvas.convertToBlob({ type: mimeType, quality: format === 'jpeg' ? 0.92 : 1 });
-      const projectName = (state.project?.name || 'gantt').replace(/[^а-яёa-z0-9_\-\s]/gi, '').trim() || 'gantt';
-      const ts       = new Date().toISOString().slice(0, 10);
-      const filename = `${projectName}_${ts}.${format}`;
-      const dlUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = dlUrl; a.download = filename;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(dlUrl), 5000);
-      showToast('Диаграмма сохранена как ' + format.toUpperCase(), 'success');
-
-    } catch (err) {
-      console.error('Export error:', err);
-      showToast('Ошибка экспорта: ' + err.message, 'error');
+      downloadUrl = URL.createObjectURL(blob);
+      downloadLink = document.createElement('a');
+      downloadLink.href = downloadUrl;
+      downloadLink.download = `${projectName}_${date}.${format}`;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      showToast('Скачивание ' + format.toUpperCase() + ' начато', 'success');
+    } catch (error) {
+      console.error('Export error:', error);
+      showToast('Ошибка экспорта: ' + error.message, 'error');
     } finally {
+      downloadLink?.remove();
+      if (downloadUrl) {
+        const url = downloadUrl;
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      }
       hideExportOverlay();
+      exportingImage = false;
     }
   }
 
