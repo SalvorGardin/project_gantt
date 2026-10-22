@@ -146,16 +146,6 @@
       milestone: gantt.config.types.milestone // 'milestone'
     };
 
-    // Link types — DHTMLX v9 standard values
-    gantt.config.links = {
-      finish_to_start:  0,
-      start_to_start:   1,
-      finish_to_finish: 2,
-      start_to_finish:  3
-    };
-    // Default link type when drag-creating a dependency
-    gantt.config.default_link_type = gantt.config.links.finish_to_start;
-
     // Columns: Задача | Начало | Окончание | Дней | Прогресс
     gantt.config.columns = [
       {
@@ -221,7 +211,7 @@
     ];
 
     // Plugins (must be called before init)
-    gantt.plugins({ tooltip: true, marker: true });
+    gantt.plugins({ tooltip: true });
 
     // Scales — week view by default
     setScale('week');
@@ -284,17 +274,30 @@
       return classes.join(' ');
     };
 
-    // Today marker (using plugin)
-    setTimeout(() => {
-      if (typeof gantt.addMarker === 'function') {
-        gantt.addMarker({
-      start_date: new Date(),
-      css: 'today_marker',
-      text: 'Сегодня',
-      title: 'Сегодня'
-        });
+    // Keep the day line inside the scrolling timeline and restore after renders.
+    function renderTodayMarker() {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const range = gantt.getState();
+      let marker = gantt.$task_data.querySelector('.today_marker');
+      if (today < range.min_date || today >= range.max_date) {
+        marker?.remove();
+        return;
       }
-    }, 100);
+      if (!marker) {
+        marker = document.createElement('div');
+        marker.className = 'today_marker';
+        marker.innerHTML = '<span class="gantt_marker_content">Сегодня</span>';
+        gantt.$task_data.appendChild(marker);
+      }
+      marker.dataset.date = gantt.date.date_to_str('%Y-%m-%d')(today);
+      marker.title = 'Сегодня: ' + gantt.date.date_to_str('%d.%m.%Y')(today);
+      marker.style.left = gantt.posFromDate(today) + 'px';
+      marker.style.height = Math.max(gantt.$task_data.clientHeight,
+        gantt.getRowTop(gantt.getVisibleTaskCount())) + 'px';
+    }
+    gantt.attachEvent('onGanttRender', renderTodayMarker);
+    gantt.attachEvent('onDataRender', renderTodayMarker);
 
     // Weekend highlight
     gantt.templates.scale_cell_class = function (date) {
@@ -335,8 +338,16 @@
       return false;
     });
 
+    let datesBeforeDrag;
+    gantt.attachEvent('onBeforeTaskDrag', function (id, mode) {
+      datesBeforeDrag = mode === 'move' ? snapshotTaskDates() : null;
+      return true;
+    });
+
     // Task moved/resized → recalc parent group dates + mark dirty
     gantt.attachEvent('onAfterTaskDrag', function (id) {
+      if (datesBeforeDrag) moveLinkedChain(id, datesBeforeDrag);
+      datesBeforeDrag = null;
       const task = gantt.getTask(id);
       if (task) {
         task.start_date_str = gantt.date.date_to_str('%Y-%m-%d')(task.start_date);
@@ -365,16 +376,6 @@
       updateStatusBar();
     });
 
-    // Track first-time link creation to show hint
-    let _linkHintShown = false;
-
-    // Force FS type on every drag-created link BEFORE it is stored
-    gantt.attachEvent('onBeforeLinkAdd', function (id, link) {
-      if (applyingProject) return true;
-      link.type = gantt.config.links.finish_to_start; // new drag-created links only
-      return true;
-    });
-
     // Link created → validate + mark dirty
     gantt.attachEvent('onAfterLinkAdd', function (id, link) {
       if (applyingProject) return;
@@ -383,6 +384,7 @@
         showToast('Циклическая зависимость невозможна', 'error');
         return;
       }
+      alignLinkedTask(link);
       markDirty();
     });
 
@@ -600,8 +602,8 @@
   }
 
   function linkTypeToNum(type) {
-    const map = { FS: 0, SS: 1, FF: 2, SF: 3 };
-    return map[type] !== undefined ? map[type] : 0;
+    const map = { FS: '0', SS: '1', FF: '2', SF: '3' };
+    return map[type] !== undefined ? map[type] : '0';
   }
   function numToLinkType(num) {
     const map = { 0: 'FS', 1: 'SS', 2: 'FF', 3: 'SF' };
@@ -666,9 +668,6 @@
       applyingProject = false;
     }
     scrollToToday();
-    setTimeout(() => {
-      if (state.project === data && data.items.length > 1) showLinkHint();
-    }, 1500);
   }
 
   function replaceProject(data, onSuccess) {
@@ -904,6 +903,8 @@
       // Update existing
       const task = gantt.getTask(id);
       if (!task) return;
+      const datesBeforeEdit = snapshotTaskDates();
+      const previousType = task.type;
       // text stores ONLY the title; emoji stored separately
       task.text = title;
       task.raw_title = title;
@@ -917,6 +918,7 @@
       task.assignee = assignee;
       task.notes = notes;
       gantt.updateTask(id);
+      if (task.type === previousType) moveLinkedChain(id, datesBeforeEdit);
     }
 
     markDirty();
@@ -940,6 +942,97 @@
   // LINK EDITOR
   // ============================================================
 
+  function calendarDay(date) {
+    return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000;
+  }
+
+  function snapshotTaskDates() {
+    const dates = new Map();
+    gantt.eachTask(task => dates.set(String(task.id), {
+      start: new Date(task.start_date), end: new Date(task.end_date)
+    }));
+    return dates;
+  }
+
+  function moveLinkedChain(id, before) {
+    const task = gantt.getTask(id);
+    const original = before.get(String(id));
+    if (!original) return;
+    const offset = calendarDay(task.start_date) - calendarDay(original.start);
+    // Resizing is not a translation and must not move the whole component.
+    if (!offset || calendarDay(task.end_date) - calendarDay(original.end) !== offset) return;
+    const neighbors = new Map();
+    const endpoint = (id, finish) => {
+      const dates = before.get(id);
+      return calendarDay(finish ? dates.end : dates.start)
+        - (finish && gantt.getTask(id).type !== gantt.config.types.milestone ? 1 : 0);
+    };
+    for (const link of gantt.getLinks()) {
+      const source = String(link.source), target = String(link.target);
+      const type = numToLinkType(link.type);
+      if (!neighbors.has(source)) neighbors.set(source, []);
+      if (!neighbors.has(target)) neighbors.set(target, []);
+      const slack = type === 'SS' || type === 'FF' ? 0
+        : Math.max(0, endpoint(target, type[1] === 'F') - endpoint(source, type[0] === 'F'));
+      if (type === 'SS' || type === 'FF' || offset > 0) neighbors.get(source).push([target, slack]);
+      if (type === 'SS' || type === 'FF' || offset < 0) neighbors.get(target).push([source, slack]);
+    }
+    const shifts = new Map();
+    const pending = [];
+    const schedule = (current, amount) => {
+      if (Math.abs(amount) <= Math.abs(shifts.get(current) || 0)) return;
+      shifts.set(current, amount);
+      pending.push(current);
+    };
+    schedule(String(id), offset);
+    for (let index = 0; index < pending.length; index++) {
+      const current = pending[index];
+      const amount = shifts.get(current);
+      for (const [next, slack] of neighbors.get(current) || []) {
+        schedule(next, Math.sign(offset) * Math.max(0, Math.abs(amount) - slack));
+      }
+      for (const child of gantt.getChildren(current)) schedule(String(child), amount);
+      // A linked summary moves with its whole branch, preserving its duration.
+      let parent = gantt.getTask(current).parent;
+      while (parent && String(parent) !== '0') {
+        if (neighbors.has(String(parent))) schedule(String(parent), amount);
+        parent = gantt.getTask(parent).parent;
+      }
+    }
+    gantt.batchUpdate(() => {
+      for (const [current, amount] of shifts) {
+        const dates = before.get(current);
+        const moved = gantt.getTask(current);
+        moved.start_date = gantt.date.add(dates.start, amount, 'day');
+        moved.end_date = gantt.date.add(dates.end, amount, 'day');
+      }
+      // Assign all dates first, then let the shared parent recalculation run.
+      for (const current of shifts.keys()) gantt.updateTask(current);
+    });
+  }
+
+  function alignLinkedTask(link) {
+    const source = gantt.getTask(link.source);
+    const target = gantt.getTask(link.target);
+    const type = numToLinkType(link.type);
+    const endpoint = (task, finish) => finish && task.type !== gantt.config.types.milestone
+      ? gantt.date.add(task.end_date, -1, 'day') : task.start_date;
+    const from = endpoint(source, type[0] === 'F');
+    const to = endpoint(target, type[1] === 'F');
+    // Calendar-day arithmetic preserves duration across daylight-saving changes.
+    const offset = calendarDay(from) - calendarDay(to);
+    if (!offset || ((type === 'FS' || type === 'SF') && offset < 0)) return;
+    const tasks = [target];
+    gantt.eachTask(task => tasks.push(task), target.id);
+    gantt.batchUpdate(() => {
+      for (const task of tasks) {
+        task.start_date = gantt.date.add(task.start_date, offset, 'day');
+        task.end_date = gantt.date.add(task.end_date, offset, 'day');
+      }
+      for (const task of tasks.slice().reverse()) gantt.updateTask(task.id);
+    });
+  }
+
   function openLinkEditor(id) {
     const link = gantt.getLink(id);
     if (!link) return;
@@ -952,7 +1045,8 @@
     if (!state.editingLinkId) return;
     const link = gantt.getLink(state.editingLinkId);
     if (!link) return;
-    link.type = parseInt(document.getElementById('link-type').value);
+    link.type = document.getElementById('link-type').value;
+    alignLinkedTask(link);
     gantt.updateLink(state.editingLinkId);
     markDirty();
     closeModal('link-modal-overlay');
@@ -1111,43 +1205,6 @@
     } finally {
       recalculatingParents = false;
     }
-  }
-
-  // ============================================================
-  // LINK CREATION HINT
-  // ============================================================
-  let _linkHintVisible = false;
-
-  function showLinkHint() {
-    if (_linkHintVisible) return;
-    _linkHintVisible = true;
-    let hint = document.getElementById('link-hint-bar');
-    if (!hint) {
-      hint = document.createElement('div');
-      hint.id = 'link-hint-bar';
-      hint.className = 'link-hint-bar';
-      hint.innerHTML = `
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-        </svg>
-        <span>
-          <strong>Создание связи:</strong> наведите мышь на правый край полосы задачи — появится кружок-якорь,
-          перетащите его на другую задачу. Двойной клик по стрелке — изменить тип.
-        </span>
-        <button class="link-hint-close" id="link-hint-close" aria-label="Закрыть подсказку">✕</button>
-      `;
-      document.body.appendChild(hint);
-      document.getElementById('link-hint-close').addEventListener('click', hideLinkHint);
-    } else {
-      hint.classList.remove('hidden');
-    }
-  }
-
-  function hideLinkHint() {
-    _linkHintVisible = false;
-    const hint = document.getElementById('link-hint-bar');
-    if (hint) hint.classList.add('hidden');
   }
 
   function detectCycle(sourceId, targetId) {
@@ -1349,7 +1406,12 @@
     });
 
     // Link help button
-    document.getElementById('btn-link-help')?.addEventListener('click', showLinkHint);
+    document.getElementById('btn-link-help')?.addEventListener('click', () => {
+      openModal('link-help-overlay', 'link-help-done');
+    });
+    for (const id of ['link-help-close', 'link-help-done']) {
+      document.getElementById(id).addEventListener('click', () => closeModal('link-help-overlay'));
+    }
 
     // Today button
     document.getElementById('btn-today')?.addEventListener('click', scrollToToday);
@@ -1373,6 +1435,26 @@
         exportGantt(format);
       });
     }
+
+    document.getElementById('btn-export-pptx')?.addEventListener('click', () => {
+      exportDropdown?.classList.remove('open');
+      if (exportingFile) return;
+      if (!state.project) {
+        showToast('Откройте проект перед экспортом', 'error');
+        return;
+      }
+      // Keep the visible menu button as the focus return target.
+      exportBtn.focus();
+      openModal('pptx-modal-overlay', 'pptx-theme');
+    });
+    for (const id of ['btn-cancel-pptx', 'pptx-modal-close']) {
+      document.getElementById(id)?.addEventListener('click', () => closeModal('pptx-modal-overlay'));
+    }
+    document.getElementById('btn-confirm-pptx')?.addEventListener('click', () => {
+      const theme = document.getElementById('pptx-theme').value;
+      closeModal('pptx-modal-overlay');
+      exportGantt('pptx', theme);
+    });
 
     // Add buttons
     document.getElementById('btn-add-group')?.addEventListener('click', () => addItemOfType('group'));
@@ -1807,13 +1889,13 @@
 
   let exportingFile = false;
 
-  async function exportGantt(format) {
+  async function exportGantt(format, theme) {
     if (exportingFile) return;
     if (!state.project) {
       showToast('Откройте проект перед экспортом', 'error');
       return;
     }
-    if (!['png', 'jpeg', 'pdf', 'xlsx'].includes(format)) return;
+    if (!['png', 'jpeg', 'pdf', 'xlsx', 'pptx'].includes(format)) return;
     exportingFile = true;
     let downloadLink = null;
     let downloadUrl = null;
@@ -1824,7 +1906,11 @@
       const date = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-');
       let blob;
       showExportOverlay();
-      if (format === 'xlsx') {
+      if (format === 'pptx') {
+        const spec = ganttToSpec();
+        const PptxGenJS = await loadExportLibrary('PptxGenJS', 'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js');
+        blob = await GanttPowerPoint.create(PptxGenJS, name, spec, theme);
+      } else if (format === 'xlsx') {
         blob = await exportExcel(name, ganttToSpec());
       } else {
         const container = document.getElementById('gantt-container');
@@ -1835,7 +1921,7 @@
         const savedMinWidth = container.style.minWidth;
         const savedGridWidth = gantt.config.grid_width;
         const savedKeepGridWidth = gantt.config.keep_grid_width;
-        const panels = [...document.querySelectorAll('.toolbar, .status-bar, .link-hint-bar')]
+        const panels = [...document.querySelectorAll('.toolbar, .status-bar')]
           .map(element => ({ element, visibility: element.style.visibility }));
         const backgroundColor = document.documentElement.getAttribute('data-theme') === 'dark' ? '#161b22' : '#ffffff';
         const painted = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -1923,8 +2009,6 @@
       .gantt-blocked .gantt_task_content { text-decoration: line-through; opacity: 0.7; }
       .gantt-done .gantt_task_line { opacity: 0.6; }
       .gantt-overdue .gantt_task_line { box-shadow: inset 0 0 0 2px rgba(220,38,38,0.5) !important; }
-      .today_marker { background: #dc2626; width: 2px; }
-      .today_marker .gantt_marker_content { color: #dc2626; font-size: 11px; font-weight: 600; top: -18px; }
       .task-cell-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .gantt_grid_column_resize_wrap { background: var(--color-primary, #2563eb); opacity: 0; }
       .gantt_grid_column_resize_wrap:hover { opacity: 0.3; }

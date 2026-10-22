@@ -38,7 +38,7 @@ const { chromium } = require('playwright');
       minWidth:document.getElementById('gantt-container').style.minWidth,
       gridWidth:gantt.config.grid_width,keepGridWidth:gantt.config.keep_grid_width,
       actualHeight:document.getElementById('gantt-container').offsetHeight,
-      panels:[...document.querySelectorAll('.toolbar,.status-bar,.link-hint-bar')].map(e=>e.style.visibility),
+      panels:[...document.querySelectorAll('.toolbar,.status-bar')].map(e=>e.style.visibility),
       scroll:{x:gantt.getScrollState().x,y:gantt.getScrollState().y},
       data:gantt.serialize(), dirty:!document.getElementById('status-unsaved').classList.contains('hidden')
     }));

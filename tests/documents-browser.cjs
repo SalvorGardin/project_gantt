@@ -22,7 +22,7 @@ const { chromium } = require('playwright');
     await page.locator('#project-name').fill('Новый план /:*?');
     const snapshot = () => page.evaluate(() => ({
       style: document.getElementById('gantt-container').style.cssText,
-      panels: [...document.querySelectorAll('.toolbar,.status-bar,.link-hint-bar')].map(e => e.style.visibility),
+      panels: [...document.querySelectorAll('.toolbar,.status-bar')].map(e => e.style.visibility),
       data: gantt.serialize(), scroll: [gantt.getScrollState().x, gantt.getScrollState().y],
       dirty: document.getElementById('status-unsaved').className
     }));

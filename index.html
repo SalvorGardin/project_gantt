@@ -53,24 +53,6 @@
   </div>
 
   <div class="toolbar__actions">
-    <!-- Add buttons -->
-    <div class="btn-group" role="group" aria-label="Добавить элемент">
-      <button class="btn btn--outline btn--sm" id="btn-add-group" data-testid="button-add-group" title="Добавить группу задач">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-        Группа
-      </button>
-      <button class="btn btn--outline btn--sm" id="btn-add-task" data-testid="button-add-task" title="Добавить задачу">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-        Задача
-      </button>
-      <button class="btn btn--outline btn--sm" id="btn-add-milestone" data-testid="button-add-milestone" title="Добавить веху">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-        Веха
-      </button>
-    </div>
-
-    <div class="toolbar__divider"></div>
-
     <!-- Zoom controls -->
     <div class="zoom-controls" role="group" aria-label="Масштаб">
       <span class="zoom-label">Масштаб:</span>
@@ -120,17 +102,17 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 9v12M15 9v12"/></svg>
           Скачать Excel
         </button>
+        <button class="export-menu-item" id="btn-export-pptx" data-testid="button-export-pptx" role="menuitem">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M12 17v4M8 21h8M7 8h6M7 12h10"/></svg>
+          Скачать PowerPoint
+        </button>
       </div>
     </div>
     <button class="btn btn--primary btn--sm" id="btn-save" data-testid="button-save">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
       Сохранить
     </button>
-    <label class="btn btn--ghost btn--sm" data-testid="button-load" style="cursor:pointer;" title="Загрузить проект из JSON">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-      Загрузить
-      <input type="file" id="file-input" accept=".json" style="display:none;" data-testid="input-file" />
-    </label>
+
 
     <div class="toolbar__divider"></div>
 
@@ -142,13 +124,31 @@
 </header>
 
 <!-- ===== STATUS BAR ===== -->
-<div class="status-bar" id="status-bar" role="status" aria-live="polite">
-  <span id="status-tasks">0 задач</span>
-  <span class="status-sep">·</span>
-  <span id="status-selected">Ничего не выбрано</span>
-  <span class="status-sep">·</span>
-  <span id="status-unsaved" class="status-unsaved hidden">● Несохранённые изменения</span>
-  <span id="status-saved" class="status-saved" title="Нет изменений после загрузки или последнего запуска скачивания JSON. Это не подтверждение записи файла на диск.">Нет новых изменений</span>
+<input type="file" id="file-input" accept=".json" hidden data-testid="input-file" />
+<div class="status-bar" id="status-bar">
+  <div class="status-bar__info" role="status" aria-live="polite">
+    <span id="status-tasks">0 задач</span>
+    <span class="status-sep">·</span>
+    <span id="status-selected">Ничего не выбрано</span>
+    <span class="status-sep">·</span>
+    <span id="status-unsaved" class="status-unsaved hidden">● Несохранённые изменения</span>
+    <span id="status-saved" class="status-saved" title="Нет изменений после загрузки или последнего запуска скачивания JSON. Это не подтверждение записи файла на диск.">Нет новых изменений</span>
+  </div>
+  <!-- Add buttons -->
+  <div class="btn-group status-bar__actions" role="group" aria-label="Добавить элемент">
+    <button class="btn btn--outline btn--sm" id="btn-add-group" data-testid="button-add-group" title="Добавить группу задач">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      Группа
+    </button>
+    <button class="btn btn--outline btn--sm" id="btn-add-task" data-testid="button-add-task" title="Добавить задачу">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      Задача
+    </button>
+    <button class="btn btn--outline btn--sm" id="btn-add-milestone" data-testid="button-add-milestone" title="Добавить веху">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      Веха
+    </button>
+  </div>
 </div>
 
 <!-- ===== MAIN AREA ===== -->
@@ -296,6 +296,32 @@
   </div>
 </div>
 
+<!-- ===== LINK HELP ===== -->
+<div class="modal-overlay hidden" id="link-help-overlay" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="link-help-title">
+  <div class="modal">
+    <div class="modal__header">
+      <h2 class="modal__title" id="link-help-title">Как работать со связями</h2>
+      <button class="btn btn--ghost btn--icon modal__close" id="link-help-close" aria-label="Закрыть подсказку">✕</button>
+    </div>
+    <div class="modal__body">
+      <p>Наведите мышь на полосу задачи. Перетащите кружок у её начала или конца на кружок другой задачи.</p>
+      <ul>
+        <li><strong>Старт → Старт:</strong> даты начала выравниваются.</li>
+        <li><strong>Финиш → Финиш:</strong> даты окончания выравниваются.</li>
+        <li><strong>Финиш → Старт:</strong> начало второй задачи не раньше окончания первой.</li>
+        <li><strong>Старт → Финиш:</strong> окончание второй задачи не раньше начала первой.</li>
+      </ul>
+      <p>Двойной щелчок по стрелке открывает изменение типа или удаление связи.</p>
+      <p>При переносе задачи связи «Старт → Старт» и «Финиш → Финиш» сдвигают соседей вместе с ней. Для «Финиш → Старт» и «Старт → Финиш» соседние задачи сдвигаются только при нарушении порядка дат и только на необходимое число дней. Длительности сохраняются.</p>
+    </div>
+    <div class="modal__footer">
+      <div class="modal__footer-right">
+        <button class="btn btn--primary btn--sm" id="link-help-done">Понятно</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ===== IMPORT MODAL ===== -->
 <div class="modal-overlay hidden" tabindex="-1" id="import-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
   <div class="modal modal--sm" id="import-modal">
@@ -403,7 +429,34 @@
   </div>
 </div>
 
+<!-- ===== POWERPOINT EXPORT ===== -->
+<div class="modal-overlay hidden" tabindex="-1" id="pptx-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="pptx-modal-title">
+  <div class="modal modal--sm">
+    <div class="modal__header">
+      <h2 class="modal__title" id="pptx-modal-title">Скачать PowerPoint</h2>
+      <button class="btn btn--ghost btn--icon" id="pptx-modal-close" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="modal__body">
+      <div class="form-group">
+        <label class="form-label" for="pptx-theme">Оформление слайдов</label>
+        <select class="form-input" id="pptx-theme">
+          <option value="light">Светлый фон</option>
+          <option value="dark">Тёмный фон</option>
+        </select>
+      </div>
+      <p>Обзор проекта и детализация групп. Названия, полосы и вехи можно редактировать в PowerPoint.</p>
+    </div>
+    <div class="modal__footer">
+      <div class="modal__footer-right">
+        <button class="btn btn--outline btn--sm" id="btn-cancel-pptx">Отмена</button>
+        <button class="btn btn--primary btn--sm" id="btn-confirm-pptx">Скачать</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="js/project-file.js"></script>
+<script src="js/powerpoint-export.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
