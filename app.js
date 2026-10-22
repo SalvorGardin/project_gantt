@@ -1367,17 +1367,12 @@
       });
     }
 
-    // Export PNG
-    document.getElementById('btn-export-png')?.addEventListener('click', () => {
-      document.getElementById('export-dropdown')?.classList.remove('open');
-      exportGantt('png');
-    });
-
-    // Export JPEG
-    document.getElementById('btn-export-jpeg')?.addEventListener('click', () => {
-      document.getElementById('export-dropdown')?.classList.remove('open');
-      exportGantt('jpeg');
-    });
+    for (const format of ['png', 'jpeg', 'pdf', 'xlsx']) {
+      document.getElementById('btn-export-' + format)?.addEventListener('click', () => {
+        exportDropdown?.classList.remove('open');
+        exportGantt(format);
+      });
+    }
 
     // Add buttons
     document.getElementById('btn-add-group')?.addEventListener('click', () => addItemOfType('group'));
@@ -1663,7 +1658,7 @@
   }
 
   // ============================================================
-  // EXPORT TO PNG / JPEG
+  // EXPORT DIAGRAM
   // ============================================================
 
   function showExportOverlay() {
@@ -1672,7 +1667,7 @@
       ov = document.createElement('div');
       ov.id = 'export-progress-overlay';
       ov.className = 'export-overlay';
-      ov.innerHTML = '<div class="export-overlay-card"><div class="export-spinner"></div><span>Подготовка изображения…</span></div>';
+      ov.innerHTML = '<div class="export-overlay-card"><div class="export-spinner"></div><span>Подготовка файла…</span></div>';
       document.body.appendChild(ov);
     }
     ov.style.display = 'flex';
@@ -1683,16 +1678,143 @@
     if (ov) ov.style.display = 'none';
   }
 
-  let exportingImage = false;
+  async function loadExportLibrary(name, url) {
+    if (window[name]) return window[name];
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = url;
+      script.onload = () => {
+        script.remove();
+        if (window[name]) resolve(window[name]);
+        else reject(new Error('Библиотека экспорта недоступна'));
+      };
+      script.onerror = () => {
+        script.remove();
+        reject(new Error('Не удалось загрузить библиотеку экспорта. Проверьте интернет и повторите.'));
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  async function exportPdf(png, width, height, name) {
+    const bytes = new Uint8Array(await png.arrayBuffer());
+    const { PDFDocument, PageSizes } = await loadExportLibrary('PDFLib', 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js');
+    const pdf = await PDFDocument.create();
+    pdf.setTitle(name);
+    const page = pdf.addPage([PageSizes.A4[1], PageSizes.A4[0]]);
+    const picture = await pdf.embedPng(bytes);
+    // ponytail: one landscape sheet; paginate if readable printed large plans are required.
+    const scale = Math.min((page.getWidth() - 56) / width, (page.getHeight() - 56) / height);
+    page.drawImage(picture, { x: (page.getWidth() - width * scale) / 2,
+      y: (page.getHeight() - height * scale) / 2, width: width * scale, height: height * scale });
+    return new Blob([await pdf.save()], { type: 'application/pdf' });
+  }
+
+  async function exportExcel(name, plan) {
+    const { Workbook } = await loadExportLibrary('ExcelJS', 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js');
+    const workbook = new Workbook();
+    workbook.creator = 'GanttFlow';
+    workbook.title = name;
+    workbook.calcProperties.fullCalcOnLoad = true;
+    const tasks = workbook.addWorksheet('Диаграмма');
+    tasks.columns = [
+      ['ID', 18], ['ID родителя', 18], ['Тип', 12], ['Название', 36],
+      ['Начало', 14], ['Окончание', 14], ['Прогресс', 12], ['Статус', 18],
+      ['Ответственный', 24], ['Заметки', 55]
+    ].map(([header, width]) => ({ header, width }));
+    const types = { group: 'Группа', task: 'Задача', milestone: 'Веха' };
+    const depths = new Map();
+    let firstDate = Infinity, lastDate = -Infinity;
+    for (const item of plan.items) {
+      // UTC calendar dates avoid shifting Excel dates in different browser time zones.
+      const start = new Date(item.start_date + 'T00:00:00Z');
+      const end = new Date(item.end_date + 'T00:00:00Z');
+      if (item.type !== 'milestone') end.setUTCDate(end.getUTCDate() - 1);
+      const row = tasks.addRow([String(item.id), item.parent_id || '', types[item.type], item.title,
+        start, end, item.progress / 100, getStatusLabel(item.status), item.assignee, item.notes]);
+      firstDate = Math.min(firstDate, start.getTime());
+      lastDate = Math.max(lastDate, end.getTime(), start.getTime());
+      const depth = item.parent_id ? (depths.get(item.parent_id) || 0) + 1 : 0;
+      depths.set(String(item.id), depth);
+      row.outlineLevel = Math.min(depth, 7);
+      row.getCell(4).alignment = { indent: Math.min(depth, 15), vertical: 'middle' };
+      if (item.type === 'group') row.font = { bold: true };
+      row.height = 24;
+    }
+    tasks.getColumn(5).numFmt = tasks.getColumn(6).numFmt = 'dd.mm.yyyy';
+    tasks.getColumn(7).numFmt = '0%';
+    const links = workbook.addWorksheet('Связи');
+    links.columns = [['ID', 18], ['ID предшественника', 24], ['ID последователя', 24], ['Тип', 12]]
+      .map(([header, width]) => ({ header, width }));
+    for (const link of plan.links) links.addRow([String(link.id), link.source_id, link.target_id, link.type]);
+    for (const sheet of [tasks, links]) {
+      sheet.views = [{ state: 'frozen', ySplit: 1 }];
+      sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: sheet.rowCount, column: sheet === tasks ? 10 : 4 } };
+      sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
+      sheet.getRow(1).height = 24;
+      sheet.eachRow(row => { row.eachCell(cell => { cell.alignment = { ...cell.alignment, vertical: 'middle', wrapText: true }; }); });
+    }
+    // Keep metadata available without pushing the calendar off-screen.
+    for (const column of [1, 2, 8, 9, 10]) tasks.getColumn(column).hidden = true;
+    tasks.views = [{ state: 'frozen', xSplit: 7, ySplit: 1, topLeftCell: 'K2', showGridLines: true }];
+    tasks.properties.outlineProperties = { summaryBelow: false };
+    const day = 86400000;
+    if (!plan.items.length) {
+      const today = new Date();
+      firstDate = lastDate = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+    }
+    // ponytail: a fixed daily grid plus 30 days; extend columns for larger edits in Excel.
+    const days = Math.round((lastDate - firstDate) / day) + 31;
+    if (days > 16374) throw new Error('Период слишком большой для дневной шкалы Excel (максимум 16374 столбца дат).');
+    const lastRow = Math.max(2, tasks.rowCount);
+    for (let offset = 0; offset < days; offset++) {
+      const col = tasks.getColumn(11 + offset);
+      col.width = 5;
+      const cell = tasks.getCell(1, 11 + offset);
+      const dateSerial = firstDate / day + 25569 + offset;
+      cell.value = { formula: plan.items.length
+        ? `MIN($E$2:$E$${lastRow})+${offset}` : `TODAY()+${offset}`, result: dateSerial };
+      cell.numFmt = 'dd.mm';
+      cell.alignment = { horizontal: 'center', vertical: 'middle', textRotation: 90 };
+    }
+    tasks.getRow(1).height = 48;
+    tasks.getCell('K1').note = 'Дневная шкала от минимальной даты начала, запас 30 дней. Меняйте даты и прогресс в строках. При большом продлении расширьте сетку или выгрузите файл заново.';
+    const lastColumn = tasks.getColumn(10 + days).letter;
+    plan.items.forEach((item, index) => {
+      const row = index + 2;
+      const valid = `AND(ISNUMBER($E${row}),ISNUMBER($F${row}),K$1>=$E${row},K$1<=$F${row})`;
+      const color = 'FF' + item.color.replace('#', '').toUpperCase();
+      const edge = { style: 'thin', color: { argb: 'FF334155' } };
+      const border = { top: edge, bottom: edge };
+      const fill = argb => ({ border, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb }, bgColor: { argb } } });
+      tasks.addConditionalFormatting({ ref: `K${row}:${lastColumn}${row}`, rules: [
+        { type: 'expression', formulae: [`AND(${valid},K$1=$E${row},K$1=$F${row})`],
+          style: { border: { ...border, left: edge, right: edge } } },
+        { type: 'expression', formulae: [`AND(${valid},K$1=$E${row})`],
+          style: { border: { ...border, left: edge } } },
+        { type: 'expression', formulae: [`AND(${valid},K$1=$F${row})`],
+          style: { border: { ...border, right: edge } } },
+        { type: 'expression', formulae: [`AND(${valid},K$1<$E${row}+ROUND(($F${row}-$E${row}+1)*$G${row},0))`],
+          style: fill('FF1E3A5F') },
+        { type: 'expression', formulae: [valid], style: fill(color) }
+      ] });
+    });
+    return new Blob([await workbook.xlsx.writeBuffer()], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+  }
+
+  let exportingFile = false;
 
   async function exportGantt(format) {
-    if (exportingImage) return;
+    if (exportingFile) return;
     if (!state.project) {
       showToast('Откройте проект перед экспортом', 'error');
       return;
     }
-    if (!['png', 'jpeg'].includes(format)) return;
-    exportingImage = true;
+    if (!['png', 'jpeg', 'pdf', 'xlsx'].includes(format)) return;
+    exportingFile = true;
     let downloadLink = null;
     let downloadUrl = null;
     try {
@@ -1700,57 +1822,67 @@
       const projectName = name.replace(/[^а-яёa-z0-9_\-\s]/gi, '').trim() || 'gantt';
       const today = new Date();
       const date = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-');
-      const container = document.getElementById('gantt-container');
-      const savedScroll = gantt.getScrollState();
-      const savedHeight = container.style.height;
-      const savedMinHeight = container.style.minHeight;
-      const savedWidth = container.style.width;
-      const savedMinWidth = container.style.minWidth;
-      const savedGridWidth = gantt.config.grid_width;
-      const savedKeepGridWidth = gantt.config.keep_grid_width;
-      const panels = [...document.querySelectorAll('.toolbar, .status-bar, .link-hint-bar')]
-        .map(element => ({ element, visibility: element.style.visibility }));
-      const backgroundColor = document.documentElement.getAttribute('data-theme') === 'dark' ? '#161b22' : '#ffffff';
-      const painted = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       let blob;
       showExportOverlay();
-      try {
-        panels.forEach(({ element }) => { element.style.visibility = 'hidden'; });
-        const chart = container.querySelector('.gantt_task');
-        const scale = container.querySelector('.gantt_task_scale');
-        if (!chart || !scale) throw new Error('Диаграмма не готова к экспорту');
-        const totalHeight = scale.offsetHeight + Math.max(1, gantt.getVisibleTaskCount()) * gantt.config.row_height;
-        const timelineX = Math.round(chart.getBoundingClientRect().left - container.getBoundingClientRect().left);
-        const totalWidth = timelineX + scale.scrollWidth;
-        if (totalWidth <= 0 || totalHeight <= 0) throw new Error('Недостаточно места для экспорта диаграммы');
-        const scrollbarHeight = container.offsetHeight - chart.offsetHeight;
-        const scrollbarWidth = container.offsetWidth - timelineX - chart.clientWidth;
-        // html-to-image clones DOM, not scroll offsets. Render the whole chart at scroll=0.
-        // ponytail: one full canvas; use tiled rendering if browser canvas limits become a requirement.
-        gantt.config.keep_grid_width = true;
-        gantt.config.grid_width = container.querySelector('.gantt_grid').offsetWidth;
-        container.style.width = container.style.minWidth = (totalWidth + scrollbarWidth) + 'px';
-        container.style.height = container.style.minHeight = (totalHeight + scrollbarHeight) + 'px';
-        gantt.setSizes();
-        gantt.scrollTo(0, 0);
-        await painted();
-        const canvas = await htmlToImage.toCanvas(container, {
-          backgroundColor, pixelRatio: 1, skipFonts: true, cacheBust: false,
-          width: totalWidth, height: totalHeight
-        });
-        blob = await new Promise((resolve, reject) => canvas.toBlob(
-          result => result ? resolve(result) : reject(new Error('Не удалось закодировать изображение')),
-          format === 'png' ? 'image/png' : 'image/jpeg', 0.92
-        ));
-      } finally {
-        panels.forEach(({ element, visibility }) => { element.style.visibility = visibility; });
-        container.style.height = savedHeight;
-        container.style.minHeight = savedMinHeight;
-        container.style.width = savedWidth;
-        container.style.minWidth = savedMinWidth;
-        gantt.config.grid_width = savedGridWidth;
-        gantt.config.keep_grid_width = savedKeepGridWidth;
-        try { gantt.setSizes(); } finally { gantt.scrollTo(savedScroll.x, savedScroll.y); }
+      if (format === 'xlsx') {
+        blob = await exportExcel(name, ganttToSpec());
+      } else {
+        const container = document.getElementById('gantt-container');
+        const savedScroll = gantt.getScrollState();
+        const savedHeight = container.style.height;
+        const savedMinHeight = container.style.minHeight;
+        const savedWidth = container.style.width;
+        const savedMinWidth = container.style.minWidth;
+        const savedGridWidth = gantt.config.grid_width;
+        const savedKeepGridWidth = gantt.config.keep_grid_width;
+        const panels = [...document.querySelectorAll('.toolbar, .status-bar, .link-hint-bar')]
+          .map(element => ({ element, visibility: element.style.visibility }));
+        const backgroundColor = document.documentElement.getAttribute('data-theme') === 'dark' ? '#161b22' : '#ffffff';
+        const painted = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        let imageWidth, imageHeight;
+        try {
+          panels.forEach(({ element }) => { element.style.visibility = 'hidden'; });
+          const chart = container.querySelector('.gantt_task');
+          const scale = container.querySelector('.gantt_task_scale');
+          if (!chart || !scale) throw new Error('Диаграмма не готова к экспорту');
+          const totalHeight = scale.offsetHeight + Math.max(1, gantt.getVisibleTaskCount()) * gantt.config.row_height;
+          const timelineX = Math.round(chart.getBoundingClientRect().left - container.getBoundingClientRect().left);
+          const totalWidth = timelineX + scale.scrollWidth;
+          if (totalWidth <= 0 || totalHeight <= 0) throw new Error('Недостаточно места для экспорта диаграммы');
+          const scrollbarHeight = container.offsetHeight - chart.offsetHeight;
+          const scrollbarWidth = container.offsetWidth - timelineX - chart.clientWidth;
+          // html-to-image clones DOM, not scroll offsets. Render the whole chart at scroll=0.
+          // ponytail: one full canvas; use tiled rendering if browser canvas limits become a requirement.
+          gantt.config.keep_grid_width = true;
+          gantt.config.grid_width = container.querySelector('.gantt_grid').offsetWidth;
+          container.style.width = container.style.minWidth = (totalWidth + scrollbarWidth) + 'px';
+          container.style.height = container.style.minHeight = (totalHeight + scrollbarHeight) + 'px';
+          gantt.setSizes();
+          gantt.scrollTo(0, 0);
+          await painted();
+          const canvas = await htmlToImage.toCanvas(container, {
+            backgroundColor, pixelRatio: 1, skipFonts: true, cacheBust: false,
+            width: totalWidth, height: totalHeight
+          });
+          imageWidth = canvas.width;
+          imageHeight = canvas.height;
+          blob = await new Promise((resolve, reject) => canvas.toBlob(
+            result => result ? resolve(result) : reject(new Error('Не удалось закодировать изображение')),
+            format === 'jpeg' ? 'image/jpeg' : 'image/png', 0.92
+          ));
+        } finally {
+          panels.forEach(({ element, visibility }) => { element.style.visibility = visibility; });
+          container.style.height = savedHeight;
+          container.style.minHeight = savedMinHeight;
+          container.style.width = savedWidth;
+          container.style.minWidth = savedMinWidth;
+          gantt.config.grid_width = savedGridWidth;
+          gantt.config.keep_grid_width = savedKeepGridWidth;
+          try { gantt.setSizes(); } finally { gantt.scrollTo(savedScroll.x, savedScroll.y); }
+        }
+        if (format === 'pdf') {
+          blob = await exportPdf(blob, imageWidth, imageHeight, name);
+        }
       }
       downloadUrl = URL.createObjectURL(blob);
       downloadLink = document.createElement('a');
@@ -1769,7 +1901,7 @@
         setTimeout(() => URL.revokeObjectURL(url), 5000);
       }
       hideExportOverlay();
-      exportingImage = false;
+      exportingFile = false;
     }
   }
 
