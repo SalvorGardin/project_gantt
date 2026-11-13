@@ -1,0 +1,6 @@
+onlinegantt.ru {
+	root * /srv/onlinegantt
+	encode zstd gzip
+	header Cache-Control "no-cache"
+	file_server
+}

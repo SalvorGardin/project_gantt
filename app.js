@@ -1668,7 +1668,13 @@
             </svg>
           </div>
           <h1 class="welcome-title">GanttFlow</h1>
-          <p class="welcome-subtitle">Дорожная карта вашего проекта</p>
+          <p class="welcome-subtitle">Бесплатная диаграмма Ганта онлайн</p>
+          <p class="welcome-description">Планируйте проекты прямо в браузере: от первых задач до готовой дорожной карты. Бесплатно и без регистрации.</p>
+          <ul class="welcome-features">
+            <li>Задачи, группы и вехи на общей временной шкале.</li>
+            <li>Зависимости, сроки, ответственные и прогресс выполнения.</li>
+            <li>Экспорт диаграммы в PNG, JPEG, PDF, Excel и PowerPoint.</li>
+          </ul>
           <div class="welcome-actions">
             <button class="btn btn--primary welcome-btn" id="welcome-new-btn" data-testid="button-welcome-new">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
@@ -1684,7 +1690,7 @@
               Открыть демо-проект
             </button>
           </div>
-          <p class="welcome-hint">Drag &amp; drop · Зависимости · JSON экспорт/импорт · Темная тема</p>
+          <p class="welcome-hint">Сохраняйте проекты на компьютер в формате JSON и загружайте их снова, чтобы продолжить работу. Сохранение — вручную: перед закрытием страницы нажмите «Сохранить».</p>
         </div>
       `;
       container.style.position = 'relative';
