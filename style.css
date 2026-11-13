@@ -877,7 +877,7 @@ input, select, textarea { font: inherit; color: inherit; }
 }
 
 .welcome-subtitle {
-  font-size: var(--text-base);
+  font-size: 1.25rem;
   color: var(--color-text-muted);
   margin-top: calc(var(--space-1) * -1);
 }
@@ -887,6 +887,10 @@ input, select, textarea { font: inherit; color: inherit; }
   font-size: var(--text-sm);
   color: var(--color-text-muted);
   line-height: 1.6;
+}
+
+.welcome-description {
+  font-size: var(--text-lg);
 }
 
 .welcome-features {
