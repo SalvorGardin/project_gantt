@@ -132,7 +132,22 @@ function session() {
   return { ...context.api, element, chart: () => copy(chart), fail: count => { failures = count; }, downloads, readers };
 }
 test('built-in demo is accepted by the new validator', () => {
-  assert.equal(prepare(session().SAMPLE_PROJECT).items.length, 26);
+  const s = session();
+  const demo = prepare(s.SAMPLE_PROJECT);
+  assert.equal(demo.project.name, 'Запуск сайта');
+  assert.equal(demo.items.filter(item => item.type === 'task').length, 15);
+  assert.equal(demo.items.filter(item => item.type === 'group').length, 4);
+  assert.equal(demo.items.filter(item => item.type === 'milestone').length, 4);
+  for (const link of demo.links) {
+    const source = demo.items.find(item => item.id === link.source_id);
+    const target = demo.items.find(item => item.id === link.target_id);
+    if (link.type === 'SS') assert.equal(source.start_date, target.start_date);
+    else assert.ok(source.end_date <= target.start_date, link.id);
+  }
+  s.loadProject(demo);
+  assert.equal(s.element('project-name').value, 'Запуск сайта');
+  assert.equal(s.chart().data.length, 23);
+  assert.equal(s.chart().links.length, demo.links.length);
 });
 test('invalid import and failed parse preserve dirty plan, name and links', () => {
   const s = session(); s.loadProject(plan());
